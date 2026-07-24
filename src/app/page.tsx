@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { AddressSearchForm } from "@/components/property/address-search-form";
 
 const ENTRY_POINTS = [
   {
@@ -11,17 +12,12 @@ const ENTRY_POINTS = [
     label: "Find a Home to Buy",
     description: "Affordability, condition, neighborhood fit, and resale analysis.",
   },
-  {
-    href: "/deal-analyzer",
-    label: "Analyze a Specific Property",
-    description: "Enter an address, or bring your own deal, and see the full analysis.",
-  },
 ];
 
 /**
- * Home / Landing page shell (spec section 8.1). The investor natural-language
- * search, strategy selections, and address lookup are Milestone 4 features —
- * this milestone establishes the layout and entry points that will host them.
+ * Home / Landing page shell (spec section 8.1). Investor/Home Buyer
+ * natural-language search are Milestone 4 features — this milestone wires
+ * up the address-search entry point against the property data layer.
  */
 export default function HomePage() {
   return (
@@ -53,11 +49,13 @@ export default function HomePage() {
             </span>
           </Link>
         ))}
+        <AddressSearchForm />
       </div>
 
       <p className="mt-10 rounded-md border border-border-subtle bg-surface-muted px-4 py-3 text-sm text-ink-600 dark:text-ink-400">
-        This is the Milestone 1 foundation shell. Natural-language search, property
-        analysis, and AI features are built in later milestones.
+        This is the Milestone 2 property data layer, running on deterministic mock
+        fixtures. Natural-language search, full analysis, and AI features are built in
+        later milestones.
       </p>
     </div>
   );
