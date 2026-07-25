@@ -36,12 +36,44 @@ create table if not exists public.properties (
   last_updated_at timestamptz not null default now(),
   created_at timestamptz not null default now(),
   constraint properties_listing_status_check
-    check (listing_status in ('active', 'off_market', 'unknown'))
+    check (listing_status in ('active', 'off_market', 'unknown')),
+  -- Mirrors the PropertyType union in src/types/property.ts exactly. Every
+  -- value the RentCast mapper can produce (mapPropertyType in
+  -- rentcast-mapper.ts) is in this set, so real RentCast data is never
+  -- blocked; duplex/triplex/fourplex are reserved for sources that can
+  -- distinguish unit count (manual entry, future providers).
+  constraint properties_property_type_check
+    check (
+      property_type is null
+      or property_type in (
+        'single_family', 'condo', 'townhouse',
+        'duplex', 'triplex', 'fourplex', 'unknown'
+      )
+    )
 );
 
 create unique index if not exists properties_source_property_id_key
   on public.properties (source_property_id)
   where source_property_id is not null;
+
+-- Keeps last_updated_at accurate for spec section 10.3 ("last-updated date
+-- and time") without relying on every future writer to set it manually.
+create or replace function public.set_properties_last_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.last_updated_at = now();
+  return new;
+end;
+$$;
+
+drop trigger if exists properties_set_last_updated_at on public.properties;
+
+create trigger properties_set_last_updated_at
+  before update on public.properties
+  for each row
+  execute function public.set_properties_last_updated_at();
 
 -- Preserves every source's reported value for every fact (spec section
 -- 10.2 — "preserve every source value internally"), not just the one
@@ -70,6 +102,13 @@ create table if not exists public.property_fact_source_values (
 create index if not exists property_fact_source_values_property_id_idx
   on public.property_fact_source_values (property_id, fact_name);
 
+-- At most one source value can be the "winner" for a given fact on a given
+-- property (spec section 10.2 selection rules assume a single selected
+-- value per fact).
+create unique index if not exists property_fact_source_values_one_selected_per_fact
+  on public.property_fact_source_values (property_id, fact_name)
+  where is_selected;
+
 create table if not exists public.property_photos (
   id uuid primary key default gen_random_uuid(),
   property_id uuid not null references public.properties (id) on delete cascade,
@@ -88,6 +127,11 @@ create table if not exists public.property_photos (
 
 create index if not exists property_photos_property_id_idx
   on public.property_photos (property_id, display_order);
+
+-- At most one photo can be the primary photo for a given property.
+create unique index if not exists property_photos_one_primary_per_property
+  on public.property_photos (property_id)
+  where is_primary;
 
 -- Property facts and photos are not user-owned data — public read, no
 -- client-side writes. All writes happen server-side (future sync jobs)
