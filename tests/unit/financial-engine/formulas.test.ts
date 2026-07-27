@@ -2,6 +2,9 @@ import { describe, it, expect } from "vitest";
 import {
   loanAmount,
   monthlyMortgagePayment,
+  annualRentalIncome,
+  totalMonthlyOperatingExpenses,
+  totalAnnualOperatingExpenses,
   monthlyNOI,
   annualNOI,
   monthlyCashFlow,
@@ -138,6 +141,124 @@ describe("monthlyMortgagePayment", () => {
     if (!result.ok) {
       expect(result.error.code).toBe("DIVISION_BY_ZERO");
     }
+  });
+
+  it("preserves sub-cent precision instead of rounding to the nearest cent (regression)", () => {
+    // Reference value computed independently via the standard PMT formula, not derived
+    // from this implementation, so the test can't trivially agree with a rounding bug.
+    const result = monthlyMortgagePayment({ loanAmount: 100_000, interestRate: 0.0575, loanTermYears: 15 });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value).toBeCloseTo(830.4100870196571, 6);
+      const roundedToCents = Math.round(result.value * 100) / 100;
+      expect(result.value).not.toBe(roundedToCents);
+    }
+  });
+
+  it("matches a reference PMT at 1% / 30yr on a $300,000 loan", () => {
+    const result = monthlyMortgagePayment({ loanAmount: 300_000, interestRate: 0.01, loanTermYears: 30 });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value).toBeCloseTo(964.9185613395013, 6);
+    }
+  });
+
+  it("matches a reference PMT at 2% / 30yr on a $300,000 loan", () => {
+    const result = monthlyMortgagePayment({ loanAmount: 300_000, interestRate: 0.02, loanTermYears: 30 });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value).toBeCloseTo(1108.8584180664432, 6);
+    }
+  });
+
+  it("matches a reference PMT at 6% / 30yr on a $300,000 loan", () => {
+    const result = monthlyMortgagePayment({ loanAmount: 300_000, interestRate: 0.06, loanTermYears: 30 });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value).toBeCloseTo(1798.6515754582708, 6);
+    }
+  });
+});
+
+describe("annualRentalIncome", () => {
+  it("multiplies monthly rental income by twelve", () => {
+    const result = annualRentalIncome({ monthlyRentalIncome: 2_000 });
+    expect(result).toEqual({ ok: true, value: 24_000 });
+  });
+
+  it("allows a zero monthly rental income", () => {
+    const result = annualRentalIncome({ monthlyRentalIncome: 0 });
+    expect(result).toEqual({ ok: true, value: 0 });
+  });
+
+  it("reports a missing monthly rental income", () => {
+    const result = annualRentalIncome({ monthlyRentalIncome: undefined });
+    expect(result).toEqual({ ok: false, error: { code: "MISSING_INPUT", field: "monthlyRentalIncome" } });
+  });
+
+  it("reports a non-finite monthly rental income as invalid", () => {
+    const result = annualRentalIncome({ monthlyRentalIncome: NaN });
+    expect(result).toEqual({
+      ok: false,
+      error: { code: "INVALID_INPUT", field: "monthlyRentalIncome", reason: "must be a finite number" },
+    });
+  });
+
+  it("is exact for a value that would drift under plain binary-float multiplication", () => {
+    // 33.33 * 12 in raw JS float is 399.96000000000004, not 399.96.
+    const result = annualRentalIncome({ monthlyRentalIncome: 33.33 });
+    expect(result).toEqual({ ok: true, value: 399.96 });
+  });
+});
+
+describe("totalMonthlyOperatingExpenses", () => {
+  it("sums the seven monthly operating expense line items", () => {
+    const result = totalMonthlyOperatingExpenses(BASE_OPERATING_EXPENSES);
+    // 200+100+150+75+0+50+25 = 600
+    expect(result).toEqual({ ok: true, value: 600 });
+  });
+
+  it("allows a zero HOA line item", () => {
+    const result = totalMonthlyOperatingExpenses({ ...BASE_OPERATING_EXPENSES, hoa: 0 });
+    expect(result.ok).toBe(true);
+  });
+
+  it("allows a zero vacancy reserve line item", () => {
+    const result = totalMonthlyOperatingExpenses({ ...BASE_OPERATING_EXPENSES, vacancyReserve: 0 });
+    expect(result.ok).toBe(true);
+  });
+
+  it("reports a missing HOA field", () => {
+    const result = totalMonthlyOperatingExpenses({ ...BASE_OPERATING_EXPENSES, hoa: undefined });
+    expect(result).toEqual({ ok: false, error: { code: "MISSING_INPUT", field: "hoa" } });
+  });
+
+  it("reports a non-finite utilities value as invalid", () => {
+    const result = totalMonthlyOperatingExpenses({ ...BASE_OPERATING_EXPENSES, utilities: NaN });
+    expect(result).toEqual({
+      ok: false,
+      error: { code: "INVALID_INPUT", field: "utilities", reason: "must be a finite number" },
+    });
+  });
+});
+
+describe("totalAnnualOperatingExpenses", () => {
+  it("is twelve times the total monthly operating expenses", () => {
+    const result = totalAnnualOperatingExpenses(BASE_OPERATING_EXPENSES);
+    expect(result).toEqual({ ok: true, value: 7_200 });
+  });
+
+  it("propagates a missing field error from the underlying monthly sum", () => {
+    const result = totalAnnualOperatingExpenses({ ...BASE_OPERATING_EXPENSES, propertyTaxes: undefined });
+    expect(result).toEqual({ ok: false, error: { code: "MISSING_INPUT", field: "propertyTaxes" } });
+  });
+
+  it("reports a non-finite maintenance reserve value as invalid", () => {
+    const result = totalAnnualOperatingExpenses({ ...BASE_OPERATING_EXPENSES, maintenanceReserve: Infinity });
+    expect(result).toEqual({
+      ok: false,
+      error: { code: "INVALID_INPUT", field: "maintenanceReserve", reason: "must be a finite number" },
+    });
   });
 });
 
@@ -340,5 +461,130 @@ describe("pricePerSquareFoot", () => {
       ok: false,
       error: { code: "INVALID_INPUT", field: "totalAcquisitionCost", reason: "must be a finite number" },
     });
+  });
+
+  it("preserves full precision instead of rounding to the nearest cent (regression)", () => {
+    const result = pricePerSquareFoot({ totalAcquisitionCost: 100_000, squareFootage: 3 });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value).toBeCloseTo(33333.333333333336, 6);
+      const roundedToCents = Math.round(result.value * 100) / 100;
+      expect(result.value).not.toBe(roundedToCents);
+    }
+  });
+});
+
+describe("premature rounding regression: full deal chain", () => {
+  it("does not round the mortgage payment before it is consumed by cash flow and cash-on-cash return", () => {
+    // Independently computed (not derived from the engine) so this can't silently
+    // agree with a rounding bug reintroduced anywhere along the chain.
+    const loan = 100_000;
+    const rate = 0.0575;
+    const termYears = 15;
+    const n = termYears * 12;
+    const r = rate / 12;
+    const expectedPayment = (r * loan) / (1 - Math.pow(1 + r, -n));
+
+    const paymentResult = monthlyMortgagePayment({ loanAmount: loan, interestRate: rate, loanTermYears: termYears });
+    expect(paymentResult.ok).toBe(true);
+    if (!paymentResult.ok) return;
+    expect(paymentResult.value).toBe(expectedPayment);
+
+    const noi = 1_000;
+    const cashFlowResult = monthlyCashFlow({ monthlyNOI: noi, monthlyMortgagePayment: paymentResult.value });
+    expect(cashFlowResult.ok).toBe(true);
+    if (!cashFlowResult.ok) return;
+    expect(cashFlowResult.value).toBe(noi - expectedPayment);
+
+    const annualCashFlowResult = annualCashFlow({ monthlyCashFlow: cashFlowResult.value });
+    expect(annualCashFlowResult.ok).toBe(true);
+    if (!annualCashFlowResult.ok) return;
+    expect(annualCashFlowResult.value).toBe((noi - expectedPayment) * 12);
+
+    const downPayment = 20_000;
+    const cocResult = cashOnCashReturn({ annualCashFlow: annualCashFlowResult.value, downPayment });
+    expect(cocResult.ok).toBe(true);
+    if (!cocResult.ok) return;
+    expect(cocResult.value).toBeCloseTo(((noi - expectedPayment) * 12) / downPayment, 10);
+  });
+});
+
+describe("realistic high-value scenario: $50 million property", () => {
+  it("produces coherent results across the whole engine with no Infinity/NaN", () => {
+    const totalAcquisitionCost = 50_000_000;
+    const downPayment = 10_000_000;
+    const squareFootage = 100_000;
+    const expenses = {
+      propertyTaxes: 20_000,
+      insurance: 8_000,
+      propertyManagement: 15_000,
+      maintenanceReserve: 6_000,
+      hoa: 0,
+      vacancyReserve: 9_000,
+      utilities: 4_000,
+    };
+    const monthlyRentalIncome = 300_000;
+
+    const loanResult = loanAmount({ totalAcquisitionCost, downPayment });
+    expect(loanResult).toEqual({ ok: true, value: 40_000_000 });
+    if (!loanResult.ok) return;
+
+    const paymentResult = monthlyMortgagePayment({
+      loanAmount: loanResult.value,
+      interestRate: 0.055,
+      loanTermYears: 30,
+    });
+    expect(paymentResult.ok).toBe(true);
+    if (!paymentResult.ok) return;
+    expect(paymentResult.value).toBeCloseTo(227_115.60053880024, 4);
+
+    const monthlyNOIResult = monthlyNOI({ monthlyRentalIncome, ...expenses });
+    expect(monthlyNOIResult).toEqual({ ok: true, value: 238_000 });
+    if (!monthlyNOIResult.ok) return;
+
+    const annualNOIResult = annualNOI({ monthlyRentalIncome, ...expenses });
+    expect(annualNOIResult).toEqual({ ok: true, value: 2_856_000 });
+    if (!annualNOIResult.ok) return;
+
+    const monthlyCashFlowResult = monthlyCashFlow({
+      monthlyNOI: monthlyNOIResult.value,
+      monthlyMortgagePayment: paymentResult.value,
+    });
+    expect(monthlyCashFlowResult.ok).toBe(true);
+    if (!monthlyCashFlowResult.ok) return;
+    expect(monthlyCashFlowResult.value).toBeCloseTo(10_884.399461199762, 4);
+
+    const annualCashFlowResult = annualCashFlow({ monthlyCashFlow: monthlyCashFlowResult.value });
+    expect(annualCashFlowResult.ok).toBe(true);
+    if (!annualCashFlowResult.ok) return;
+    expect(annualCashFlowResult.value).toBeCloseTo(130_612.79353439715, 4);
+
+    const capRateResult = capRate({ annualNOI: annualNOIResult.value, totalAcquisitionCost });
+    expect(capRateResult).toEqual({ ok: true, value: 0.05712 });
+
+    const cocResult = cashOnCashReturn({ annualCashFlow: annualCashFlowResult.value, downPayment });
+    expect(cocResult.ok).toBe(true);
+    if (!cocResult.ok) return;
+    expect(cocResult.value).toBeCloseTo(0.013061279353439715, 10);
+
+    const pricePerSqftResult = pricePerSquareFoot({ totalAcquisitionCost, squareFootage });
+    expect(pricePerSqftResult).toEqual({ ok: true, value: 500 });
+
+    for (const result of [
+      loanResult,
+      paymentResult,
+      monthlyNOIResult,
+      annualNOIResult,
+      monthlyCashFlowResult,
+      annualCashFlowResult,
+      capRateResult,
+      cocResult,
+      pricePerSqftResult,
+    ]) {
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(Number.isFinite(result.value)).toBe(true);
+      }
+    }
   });
 });

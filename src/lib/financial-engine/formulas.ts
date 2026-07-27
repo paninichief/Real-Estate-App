@@ -96,7 +96,28 @@ export function monthlyMortgagePayment(input: MonthlyMortgagePaymentInput): Fina
     return err({ code: "DIVISION_BY_ZERO", field: "interestRate" });
   }
 
-  return ok(fromCents(toCents(payment)));
+  // Not cents-rounded: this is a division result, not a sum of exact currency
+  // inputs, so rounding here would be premature per spec Appendix A.3.
+  return ok(payment);
+}
+
+export interface AnnualRentalIncomeInput {
+  monthlyRentalIncome: NumericInput;
+}
+
+/**
+ * Annual Rental Income = Monthly Rental Income * 12. Cents-integer math is
+ * used because the input is a raw, exact-to-the-cent user figure and
+ * multiplying it by an integer constant can never produce more precision
+ * than it already has — this only removes binary-float noise, it never
+ * discards real information.
+ */
+export function annualRentalIncome(input: AnnualRentalIncomeInput): FinancialCalcResult<number> {
+  const error = missingOrInvalid(input.monthlyRentalIncome, "monthlyRentalIncome", { allowNegative: true });
+  if (error) return err(error);
+
+  const cents = toCents(input.monthlyRentalIncome as number);
+  return ok(fromCents(cents * 12));
 }
 
 export interface MonthlyOperatingExpensesInput {
@@ -135,7 +156,35 @@ function sumMonthlyOperatingExpenseCents(
   return { ok: true, cents: totalCents };
 }
 
-/** Monthly NOI = Monthly Rental Income - Total Monthly Operating Expenses */
+/**
+ * Total Monthly Operating Expenses = Property Taxes + Insurance + Property
+ * Management + Maintenance Reserve + HOA + Vacancy Reserve + Utilities.
+ * Cents-integer math here is safe for the same reason as annualRentalIncome:
+ * every term is a raw, exact-to-the-cent input, so summing in integer cents
+ * only removes binary-float noise, never real precision.
+ */
+export function totalMonthlyOperatingExpenses(input: MonthlyOperatingExpensesInput): FinancialCalcResult<number> {
+  const expenses = sumMonthlyOperatingExpenseCents(input);
+  if (!expenses.ok) return err(expenses.error);
+  return ok(fromCents(expenses.cents));
+}
+
+/**
+ * Total Annual Operating Expenses = Total Monthly Operating Expenses * 12.
+ * Multiplying an already cents-exact value by an integer constant stays
+ * cents-exact, so this reuses the monthly cents total directly.
+ */
+export function totalAnnualOperatingExpenses(input: MonthlyOperatingExpensesInput): FinancialCalcResult<number> {
+  const expenses = sumMonthlyOperatingExpenseCents(input);
+  if (!expenses.ok) return err(expenses.error);
+  return ok(fromCents(expenses.cents * 12));
+}
+
+/**
+ * Monthly NOI = Monthly Rental Income - Total Monthly Operating Expenses.
+ * Both operands are raw/exact-to-the-cent currency values, so cents-integer
+ * subtraction is exact — not premature rounding.
+ */
 export function monthlyNOI(input: MonthlyNOIInput): FinancialCalcResult<number> {
   const incomeError = missingOrInvalid(input.monthlyRentalIncome, "monthlyRentalIncome", { allowNegative: true });
   if (incomeError) return err(incomeError);
@@ -163,7 +212,12 @@ export interface MonthlyCashFlowInput {
   monthlyMortgagePayment: NumericInput;
 }
 
-/** Monthly Cash Flow = Monthly NOI - Monthly Mortgage Payment */
+/**
+ * Monthly Cash Flow = Monthly NOI - Monthly Mortgage Payment. Not
+ * cents-rounded: the mortgage payment is itself an unrounded division
+ * result, so converting it to cents here would silently reintroduce the
+ * premature rounding removed from monthlyMortgagePayment.
+ */
 export function monthlyCashFlow(input: MonthlyCashFlowInput): FinancialCalcResult<number> {
   const noiError = missingOrInvalid(input.monthlyNOI, "monthlyNOI", { allowNegative: true });
   if (noiError) return err(noiError);
@@ -172,22 +226,23 @@ export function monthlyCashFlow(input: MonthlyCashFlowInput): FinancialCalcResul
   });
   if (paymentError) return err(paymentError);
 
-  const noiCents = toCents(input.monthlyNOI as number);
-  const paymentCents = toCents(input.monthlyMortgagePayment as number);
-  return ok(fromCents(noiCents - paymentCents));
+  return ok((input.monthlyNOI as number) - (input.monthlyMortgagePayment as number));
 }
 
 export interface AnnualCashFlowInput {
   monthlyCashFlow: NumericInput;
 }
 
-/** Annual Cash Flow = Monthly Cash Flow * 12 */
+/**
+ * Annual Cash Flow = Monthly Cash Flow * 12. Not cents-rounded, for the same
+ * reason as monthlyCashFlow: its input may already carry sub-cent precision
+ * from an unrounded mortgage payment.
+ */
 export function annualCashFlow(input: AnnualCashFlowInput): FinancialCalcResult<number> {
   const error = missingOrInvalid(input.monthlyCashFlow, "monthlyCashFlow", { allowNegative: true });
   if (error) return err(error);
 
-  const cents = toCents(input.monthlyCashFlow as number);
-  return ok(fromCents(cents * 12));
+  return ok((input.monthlyCashFlow as number) * 12);
 }
 
 export interface CapRateInput {
@@ -233,7 +288,11 @@ export interface PricePerSquareFootInput {
   squareFootage: NumericInput;
 }
 
-/** Price per Square Foot = Total Acquisition Cost / Square Footage */
+/**
+ * Price per Square Foot = Total Acquisition Cost / Square Footage. Not
+ * cents-rounded: this is a division result, like cap rate, not a sum of
+ * exact currency inputs.
+ */
 export function pricePerSquareFoot(input: PricePerSquareFootInput): FinancialCalcResult<number> {
   const costError = missingOrInvalid(input.totalAcquisitionCost, "totalAcquisitionCost", { allowNegative: true });
   if (costError) return err(costError);
@@ -245,5 +304,5 @@ export function pricePerSquareFoot(input: PricePerSquareFootInput): FinancialCal
     return err({ code: "DIVISION_BY_ZERO", field: "squareFootage" });
   }
   const cost = input.totalAcquisitionCost as number;
-  return ok(fromCents(toCents(cost / squareFootage)));
+  return ok(cost / squareFootage);
 }
