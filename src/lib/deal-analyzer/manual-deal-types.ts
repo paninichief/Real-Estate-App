@@ -50,6 +50,14 @@ export type ManualDealMetricResult =
   | { status: "not_calculated"; missingFields: string[]; invalidFields: string[] }
   | { status: "unavailable"; reason: string };
 
+/**
+ * Where a raw entry field's current value came from (spec: honesty about
+ * provenance). A field seeded from the property-data layer keeps saying so
+ * even after the user edits it — the fact that it originally came from
+ * property data is never hidden, only appended to.
+ */
+export type FieldProvenance = "user_input" | "from_property_data" | "from_property_data_edited";
+
 export interface ManualDealCalculationResults {
   pricePerSquareFoot: ManualDealMetricResult;
   annualRentalIncome: ManualDealMetricResult;

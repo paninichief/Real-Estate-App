@@ -266,24 +266,24 @@ test.describe("Manual Deal Entry", () => {
 
     await page.getByRole("radio", { name: "Percent (%)" }).check();
 
-    // Scoped to "Your entries": the live form also has its own static
-    // "Down payment" label above the mode selector, and "hasText" does
-    // substring matching, so an unscoped/loose query would collide with it
-    // or with "Down payment percentage (calculated)".
-    const yourEntries = page.getByRole("region", { name: "Your entries" });
+    // Scoped to the "Financing" section: the live form also has its own
+    // static "Down payment" label above the mode selector, and "hasText"
+    // does substring matching, so an unscoped/loose query would collide
+    // with it or with "Down payment percentage (calculated)".
+    const financing = page.getByRole("region", { name: "Financing" });
 
     // Plain heading for the true source (the dollar amount)...
-    const dollarRow = yourEntries.locator("dt", { hasText: /^Down payment$/ }).locator("xpath=..");
+    const dollarRow = financing.locator("dt", { hasText: /^Down payment$/ }).locator("xpath=..");
     await expect(dollarRow.getByText("$30,000.00")).toBeVisible();
     await expect(dollarRow.getByText("User input")).toBeVisible();
-    await expect(yourEntries.getByText("Down payment (calculated)")).toHaveCount(0);
+    await expect(financing.getByText("Down payment (calculated)")).toHaveCount(0);
 
     // ...and a "(calculated)" heading for the derived percentage.
-    const percentRow = yourEntries
+    const percentRow = financing
       .locator("dt", { hasText: /^Down payment percentage \(calculated\)$/ })
       .locator("xpath=..");
     await expect(percentRow.getByText("Calculated from user input")).toBeVisible();
-    await expect(yourEntries.getByText("Down payment percentage", { exact: true })).toHaveCount(0);
+    await expect(financing.getByText("Down payment percentage", { exact: true })).toHaveCount(0);
   });
 
   test("keeps the percentage labeled User input after switching to view Amount mode, since the user typed the percentage", async ({
@@ -299,12 +299,12 @@ test.describe("Manual Deal Entry", () => {
     await page.getByRole("radio", { name: "Amount ($)" }).check();
 
     // The single visible row uses the "(calculated)" heading since the
-    // percentage, not the dollar amount, is the true source. Scoped to
-    // "Your entries" — the live form's own static "Down payment" label
+    // percentage, not the dollar amount, is the true source. Scoped to the
+    // "Financing" section — the live form's own static "Down payment" label
     // (above the mode selector) is unrelated and always present.
-    const yourEntries = page.getByRole("region", { name: "Your entries" });
-    await expect(yourEntries.getByText("Down payment", { exact: true })).toHaveCount(0);
-    const dollarRow = yourEntries
+    const financing = page.getByRole("region", { name: "Financing" });
+    await expect(financing.getByText("Down payment", { exact: true })).toHaveCount(0);
+    const dollarRow = financing
       .locator("dt", { hasText: /^Down payment \(calculated\)$/ })
       .locator("xpath=..");
     await expect(dollarRow.getByText("$30,000.00")).toBeVisible();
