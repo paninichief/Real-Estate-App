@@ -1,14 +1,17 @@
 import { notFound } from "next/navigation";
-import { getPropertyDataProvider } from "@/lib/property-data";
+import { getMockPropertyDataProvider } from "@/lib/property-data";
 import { propertyToManualDealSeed } from "@/lib/deal-analyzer/property-to-manual-deal";
 import { ManualDealEntryForm } from "@/components/deal-analyzer/manual-deal-entry-form";
 
 /**
- * Deal Analyzer, seeded from a DealFactor property (mock fixtures only —
- * spec: never live RentCast). Pre-fills whatever facts the property-data
- * layer actually has (address, purchase price, bedrooms, bathrooms, square
- * footage); rent, financing, and expenses have no such source and always
- * start blank, exactly as in manual-only entry.
+ * Deal Analyzer, seeded from a DealFactor property. Explicitly mock-only
+ * (Codex finding 2): resolves the property through
+ * `getMockPropertyDataProvider()`, never the environment-selected general
+ * provider, so this route can never make a live RentCast call or require an
+ * API key regardless of `PROPERTY_DATA_PROVIDER`. Pre-fills whatever facts
+ * the property-data layer actually has (address, purchase price, bedrooms,
+ * bathrooms, square footage); rent, financing, and expenses have no such
+ * source and always start blank, exactly as in manual-only entry.
  */
 export default async function DealAnalyzerPropertyPage({
   params,
@@ -16,7 +19,7 @@ export default async function DealAnalyzerPropertyPage({
   params: Promise<{ propertyId: string }>;
 }) {
   const { propertyId } = await params;
-  const property = await getPropertyDataProvider().getById(propertyId);
+  const property = await getMockPropertyDataProvider().getById(propertyId);
 
   if (!property) {
     notFound();

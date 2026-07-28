@@ -212,6 +212,95 @@ describe("ManualDealResults — Metric explanations", () => {
   });
 });
 
+describe("ManualDealResults — property-data confidence status (Codex finding 1)", () => {
+  it("shows the property-data status as a separate label alongside the provenance tag", () => {
+    const results = calculateManualDeal(FULL_VALUES);
+    render(
+      <ManualDealResults
+        values={FULL_VALUES}
+        results={results}
+        fieldProvenance={{ purchasePrice: "from_property_data" }}
+        fieldStatus={{ purchasePrice: "estimated" }}
+      />,
+    );
+
+    const section = screen.getByRole("region", { name: "Property summary" });
+    const priceRow = within(section).getByText("$250,000.00").closest("div") as HTMLElement;
+    expect(within(priceRow).getByText("From property data")).toBeInTheDocument();
+    expect(within(priceRow).getByText("Estimated")).toBeInTheDocument();
+  });
+
+  it.each([
+    ["confirmed", "Confirmed"],
+    ["reported", "Reported"],
+    ["estimated", "Estimated"],
+    ["unverified", "Unverified"],
+    ["low_confidence", "Low confidence"],
+    ["insufficient_data", "Insufficient data"],
+  ] as const)("maps canonical status %s to readable label %s", (status, label) => {
+    const results = calculateManualDeal(FULL_VALUES);
+    render(
+      <ManualDealResults
+        values={FULL_VALUES}
+        results={results}
+        fieldProvenance={{ bedrooms: "from_property_data" }}
+        fieldStatus={{ bedrooms: status }}
+      />,
+    );
+
+    const section = screen.getByRole("region", { name: "Property summary" });
+    const bedroomsRow = within(section).getByText("Bedrooms").closest("div") as HTMLElement;
+    expect(within(bedroomsRow).getByText(label)).toBeInTheDocument();
+  });
+
+  it("shows no status badge for a plain user-input field (no property-data status exists)", () => {
+    const results = calculateManualDeal(FULL_VALUES);
+    render(<ManualDealResults values={FULL_VALUES} results={results} />);
+
+    const section = screen.getByRole("region", { name: "Property summary" });
+    const addressRow = within(section).getByText("123 Main St, Detroit, MI").closest("div") as HTMLElement;
+    for (const label of ["Confirmed", "Reported", "Estimated", "Unverified", "Low confidence", "Insufficient data"]) {
+      expect(within(addressRow).queryByText(label)).not.toBeInTheDocument();
+    }
+  });
+
+  it("still shows the status badge when the seeded field has since been cleared to blank", () => {
+    const values: ManualDealFormValues = { ...FULL_VALUES, address: null };
+    const results = calculateManualDeal(values);
+    render(
+      <ManualDealResults
+        values={values}
+        results={results}
+        fieldProvenance={{ address: "from_property_data_edited" }}
+        fieldStatus={{ address: "confirmed" }}
+      />,
+    );
+
+    const section = screen.getByRole("region", { name: "Property summary" });
+    const addressRow = within(section).getByText("Address").closest("div") as HTMLElement;
+    expect(within(addressRow).getByText("Not provided")).toBeInTheDocument();
+    expect(within(addressRow).getByText("From property data (edited)")).toBeInTheDocument();
+    expect(within(addressRow).getByText("Confirmed")).toBeInTheDocument();
+  });
+
+  it("never affects the calculated metric — the numeric value is used normally regardless of status", () => {
+    // Price per square foot must still be a real number even though
+    // purchasePrice carries an "estimated" status.
+    const results = calculateManualDeal(FULL_VALUES);
+    render(
+      <ManualDealResults
+        values={FULL_VALUES}
+        results={results}
+        fieldProvenance={{ purchasePrice: "from_property_data" }}
+        fieldStatus={{ purchasePrice: "estimated" }}
+      />,
+    );
+
+    const section = screen.getByRole("region", { name: "Property summary" });
+    expect(within(section).getByText("$200.00")).toBeInTheDocument(); // price per sqft, unaffected
+  });
+});
+
 describe("ManualDealResults — field provenance (property-seeded deals)", () => {
   it("labels a field seeded from property data as From property data", () => {
     const results = calculateManualDeal(FULL_VALUES);

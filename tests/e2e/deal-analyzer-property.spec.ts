@@ -65,4 +65,29 @@ test.describe("Deal Analyzer — property-seeded entry (Milestone 3C)", () => {
     const response = await page.goto("/deal-analyzer/property/does-not-exist");
     expect(response?.status()).toBe(404);
   });
+
+  test("shows the property-data confidence status (Codex finding 1) alongside the provenance tag", async ({
+    page,
+  }) => {
+    await page.goto("/deal-analyzer/property/prop-maple-514");
+
+    const propertySummary = page.getByRole("region", { name: "Property summary" });
+    const priceRow = propertySummary.locator("dt", { hasText: "Purchase price" }).locator("xpath=..");
+    await expect(priceRow.getByText("From property data")).toBeVisible();
+    await expect(priceRow.getByText("Reported")).toBeVisible();
+  });
+
+  test("clearing a seeded field to blank keeps the (edited) tag and never restores the original value (Codex finding 3)", async ({
+    page,
+  }) => {
+    await page.goto("/deal-analyzer/property/prop-maple-514");
+
+    await page.getByLabel("Address").fill("");
+
+    const propertySummary = page.getByRole("region", { name: "Property summary" });
+    const addressRow = propertySummary.locator("dt", { hasText: "Address" }).locator("xpath=..");
+    await expect(addressRow.getByText("Not provided")).toBeVisible();
+    await expect(addressRow.getByText("From property data (edited)")).toBeVisible();
+    await expect(addressRow.getByText("514 Maple Street, Detroit, MI 48214")).toHaveCount(0);
+  });
 });

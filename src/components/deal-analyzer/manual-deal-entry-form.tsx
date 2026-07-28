@@ -553,6 +553,7 @@ export function ManualDealEntryForm({ seed }: { seed?: ManualDealSeed } = {}) {
         downPaymentPercent={downPaymentPercentValue}
         downPaymentPercentInvalid={Boolean(downPaymentPercentError)}
         fieldProvenance={fieldProvenance}
+        fieldStatus={seed?.statuses}
       />
     </div>
   );

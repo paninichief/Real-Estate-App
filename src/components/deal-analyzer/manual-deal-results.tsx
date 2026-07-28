@@ -7,6 +7,7 @@ import type {
   ManualDealMetricResult,
   FieldProvenance,
 } from "@/lib/deal-analyzer/manual-deal-types";
+import type { FactStatus } from "@/types/property";
 import { formatCurrency, formatPercent } from "@/lib/deal-analyzer/format";
 import { formatPercentInput, type DownPaymentMode } from "@/lib/deal-analyzer/down-payment-input";
 
@@ -19,6 +20,21 @@ const PROVENANCE_LABELS: Record<FieldProvenance, string> = {
   user_input: "User input",
   from_property_data: "From property data",
   from_property_data_edited: "From property data (edited)",
+};
+
+/**
+ * Readable text for every canonical `FactStatus` the property-data layer can
+ * report (spec sections 1.2 / 10.2) — a direct, exhaustive mapping, never an
+ * inferred or invented confidence value.
+ */
+const FACT_STATUS_LABELS: Record<FactStatus, string> = {
+  confirmed: "Confirmed",
+  reported: "Reported",
+  estimated: "Estimated",
+  unverified: "Unverified",
+  low_confidence: "Low confidence",
+  insufficient_data: "Insufficient data",
+  not_available: "Not available",
 };
 
 interface EntryRow {
@@ -153,9 +169,41 @@ function MetricValue({ result, format }: { result: ManualDealMetricResult; forma
   return <span className="text-sm text-ink-600 dark:text-ink-400">{result.reason}</span>;
 }
 
-function EntryValue({ value, tag }: { value: string | null; tag: string }) {
+function EntryValue({
+  value,
+  tag,
+  statusLabel,
+  /**
+   * Whether the field's provenance tag (and status, if any) must still show
+   * even while the value itself is blank. True only for a field the
+   * property-data layer actually seeded — a plain manual field left blank
+   * shows "Not provided" alone, with no tag, exactly as before (spec:
+   * clearing a seeded field never restores the old value, but it also never
+   * hides the fact that the field originally came from property data).
+   */
+  showTagWhenBlank = false,
+}: {
+  value: string | null;
+  tag: string;
+  statusLabel?: string;
+  showTagWhenBlank?: boolean;
+}) {
   if (value === null) {
-    return <span className="text-ink-400">{NOT_PROVIDED}</span>;
+    return (
+      <>
+        <span className="text-ink-400">{NOT_PROVIDED}</span>
+        {showTagWhenBlank && (
+          <span className="rounded-full border border-border-subtle px-2 py-0.5 text-xs font-medium text-ink-400">
+            {tag}
+          </span>
+        )}
+        {showTagWhenBlank && statusLabel && (
+          <span className="rounded-full border border-border-subtle px-2 py-0.5 text-xs font-medium text-ink-400">
+            {statusLabel}
+          </span>
+        )}
+      </>
+    );
   }
   return (
     <>
@@ -163,6 +211,11 @@ function EntryValue({ value, tag }: { value: string | null; tag: string }) {
       <span className="rounded-full border border-border-subtle px-2 py-0.5 text-xs font-medium text-ink-400">
         {tag}
       </span>
+      {statusLabel && (
+        <span className="rounded-full border border-border-subtle px-2 py-0.5 text-xs font-medium text-ink-400">
+          {statusLabel}
+        </span>
+      )}
     </>
   );
 }
@@ -205,6 +258,7 @@ export function ManualDealResults({
   downPaymentPercent = null,
   downPaymentPercentInvalid = false,
   fieldProvenance,
+  fieldStatus,
 }: {
   values: ManualDealFormValues;
   results: ManualDealCalculationResults;
@@ -233,6 +287,13 @@ export function ManualDealResults({
    * default to "User input", matching manual-only entry.
    */
   fieldProvenance?: Partial<Record<keyof ManualDealFormValues, FieldProvenance>>;
+  /**
+   * The property-data layer's own resolved confidence status for each
+   * seeded field (e.g. "confirmed", "estimated") — displayed as a separate
+   * label alongside the provenance tag wherever one exists. Never inferred
+   * here; only ever carried over from `ManualDealSeed.statuses`.
+   */
+  fieldStatus?: Partial<Record<keyof ManualDealFormValues, FactStatus>>;
 }) {
   const dollarAmountForDisplay =
     downPaymentSource === "percent" && downPaymentPercentInvalid ? null : values.downPayment;
@@ -251,7 +312,13 @@ export function ManualDealResults({
 
   function renderEntryRow(row: EntryRow) {
     const value = values[row.key];
+    // A field only ever appears in `fieldProvenance` if it was actually
+    // seeded from property data — that presence (not merely a non-default
+    // provenance value) is what should keep the tag/status visible even
+    // once the field is cleared to blank.
+    const isSeeded = fieldProvenance?.[row.key] !== undefined;
     const provenance = fieldProvenance?.[row.key] ?? "user_input";
+    const status = fieldStatus?.[row.key];
     return (
       <div key={row.key}>
         <dt className="text-xs font-medium uppercase tracking-wide text-ink-400">{row.label}</dt>
@@ -259,6 +326,8 @@ export function ManualDealResults({
           <EntryValue
             value={value !== null ? (row.format as (value: unknown) => string)(value) : null}
             tag={PROVENANCE_LABELS[provenance]}
+            statusLabel={status ? FACT_STATUS_LABELS[status] : undefined}
+            showTagWhenBlank={isSeeded}
           />
         </dd>
         {row.informational && <p className="mt-1 text-xs text-ink-400">{INFORMATIONAL_NOTE}</p>}

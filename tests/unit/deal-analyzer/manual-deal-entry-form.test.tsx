@@ -886,6 +886,13 @@ const SAMPLE_SEED: ManualDealSeed = {
     squareFootage: "1450",
   },
   seededFields: new Set(["address", "purchasePrice", "bedrooms", "bathrooms", "squareFootage"]),
+  statuses: {
+    address: "reported",
+    purchasePrice: "reported",
+    bedrooms: "reported",
+    bathrooms: "reported",
+    squareFootage: "reported",
+  },
 };
 
 describe("ManualDealEntryForm — property-seeded deals", () => {
@@ -958,5 +965,117 @@ describe("ManualDealEntryForm — property-seeded deals", () => {
     const propertySummary = screen.getByRole("region", { name: "Property summary" });
     const addressRow = within(propertySummary).getByText("123 Main St").closest("div") as HTMLElement;
     expect(within(addressRow).getByText("User input")).toBeInTheDocument();
+  });
+
+  it("shows the property-data status label (Codex finding 1) alongside the seeded provenance tag", () => {
+    render(<ManualDealEntryForm seed={SAMPLE_SEED} />);
+
+    const propertySummary = screen.getByRole("region", { name: "Property summary" });
+    const priceRow = within(propertySummary).getByText("$189,000.00").closest("div") as HTMLElement;
+    expect(within(priceRow).getByText("From property data")).toBeInTheDocument();
+    expect(within(priceRow).getByText("Reported")).toBeInTheDocument();
+  });
+});
+
+describe("ManualDealEntryForm — Codex finding 3: provenance survives clearing/invalidating a seeded field", () => {
+  const propertySummaryRegion = () => screen.getByRole("region", { name: "Property summary" });
+
+  it("address: clearing to blank keeps the (edited) tag and shows Not provided, without restoring the original value", () => {
+    render(<ManualDealEntryForm seed={SAMPLE_SEED} />);
+
+    fireEvent.change(screen.getByLabelText("Address"), { target: { value: "" } });
+
+    const propertySummary = propertySummaryRegion();
+    const addressRow = within(propertySummary).getByText("Address").closest("div") as HTMLElement;
+    expect(within(addressRow).getByText("Not provided")).toBeInTheDocument();
+    expect(within(addressRow).getByText("From property data (edited)")).toBeInTheDocument();
+    expect(within(addressRow).queryByText("514 Maple Street, Detroit, MI 48214")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Address")).toHaveValue("");
+  });
+
+  it("purchase price: clearing to blank keeps the (edited) tag; a temporarily invalid value keeps it too and blocks dependent metrics", () => {
+    render(<ManualDealEntryForm seed={SAMPLE_SEED} />);
+
+    fireEvent.change(screen.getByLabelText("Purchase price"), { target: { value: "" } });
+    let propertySummary = propertySummaryRegion();
+    let priceRow = within(propertySummary).getByText("Purchase price").closest("div") as HTMLElement;
+    expect(within(priceRow).getByText("Not provided")).toBeInTheDocument();
+    expect(within(priceRow).getByText("From property data (edited)")).toBeInTheDocument();
+
+    // Now a present-but-invalid value (negative) — never restores 189000.
+    fireEvent.change(screen.getByLabelText("Purchase price"), { target: { value: "-5" } });
+    propertySummary = propertySummaryRegion();
+    priceRow = within(propertySummary).getByText("Purchase price").closest("div") as HTMLElement;
+    expect(within(priceRow).getByText("-$5.00")).toBeInTheDocument();
+    expect(within(priceRow).getByText("From property data (edited)")).toBeInTheDocument();
+    expect(within(priceRow).queryByText("$189,000.00")).not.toBeInTheDocument();
+
+    const priceSqftRow = within(propertySummary).getByText("Price per square foot").closest("div") as HTMLElement;
+    expect(within(priceSqftRow).getByText(/invalid/i)).toBeInTheDocument();
+    expect(within(priceSqftRow).getByText(/purchase price/i)).toBeInTheDocument();
+  });
+
+  it("bedrooms: clearing to blank keeps the (edited) tag; a fractional (invalid) value keeps it too, without restoring 3", () => {
+    render(<ManualDealEntryForm seed={SAMPLE_SEED} />);
+
+    fireEvent.change(screen.getByLabelText("Bedrooms"), { target: { value: "" } });
+    let propertySummary = propertySummaryRegion();
+    let bedroomsRow = within(propertySummary).getByText("Bedrooms").closest("div") as HTMLElement;
+    expect(within(bedroomsRow).getByText("Not provided")).toBeInTheDocument();
+    expect(within(bedroomsRow).getByText("From property data (edited)")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Bedrooms"), { target: { value: "3.5" } });
+    propertySummary = propertySummaryRegion();
+    bedroomsRow = within(propertySummary).getByText("Bedrooms").closest("div") as HTMLElement;
+    expect(within(bedroomsRow).getByText("3.5")).toBeInTheDocument();
+    expect(within(bedroomsRow).getByText("From property data (edited)")).toBeInTheDocument();
+    expect(within(bedroomsRow).queryByText("3")).not.toBeInTheDocument();
+  });
+
+  it("bathrooms: clearing to blank keeps the (edited) tag; a negative (invalid) value keeps it too, without restoring 1.5", () => {
+    render(<ManualDealEntryForm seed={SAMPLE_SEED} />);
+
+    fireEvent.change(screen.getByLabelText("Bathrooms"), { target: { value: "" } });
+    let propertySummary = propertySummaryRegion();
+    let bathroomsRow = within(propertySummary).getByText("Bathrooms").closest("div") as HTMLElement;
+    expect(within(bathroomsRow).getByText("Not provided")).toBeInTheDocument();
+    expect(within(bathroomsRow).getByText("From property data (edited)")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Bathrooms"), { target: { value: "-1" } });
+    propertySummary = propertySummaryRegion();
+    bathroomsRow = within(propertySummary).getByText("Bathrooms").closest("div") as HTMLElement;
+    expect(within(bathroomsRow).getByText("-1")).toBeInTheDocument();
+    expect(within(bathroomsRow).getByText("From property data (edited)")).toBeInTheDocument();
+    expect(within(bathroomsRow).queryByText("1.5")).not.toBeInTheDocument();
+  });
+
+  it("square footage: clearing to blank keeps the (edited) tag; an invalid (zero) value keeps it too, without restoring 1450", () => {
+    render(<ManualDealEntryForm seed={SAMPLE_SEED} />);
+
+    fireEvent.change(screen.getByLabelText("Square footage"), { target: { value: "" } });
+    let propertySummary = propertySummaryRegion();
+    let sqftRow = within(propertySummary).getByText("Square footage").closest("div") as HTMLElement;
+    expect(within(sqftRow).getByText("Not provided")).toBeInTheDocument();
+    expect(within(sqftRow).getByText("From property data (edited)")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Square footage"), { target: { value: "0" } });
+    propertySummary = propertySummaryRegion();
+    sqftRow = within(propertySummary).getByText("Square footage").closest("div") as HTMLElement;
+    expect(within(sqftRow).getByText("0 sqft")).toBeInTheDocument();
+    expect(within(sqftRow).getByText("From property data (edited)")).toBeInTheDocument();
+    expect(within(sqftRow).queryByText("1,450 sqft")).not.toBeInTheDocument();
+  });
+
+  it("a field that started blank and was filled in manually (never seeded) continues to use plain User input, not property-data provenance", () => {
+    render(<ManualDealEntryForm seed={SAMPLE_SEED} />);
+
+    fireEvent.change(screen.getByLabelText("Monthly rent"), { target: { value: "2000" } });
+    fireEvent.change(screen.getByLabelText("Monthly rent"), { target: { value: "" } });
+
+    const incomeExpenses = screen.getByRole("region", { name: "Income and expenses" });
+    const rentRow = within(incomeExpenses).getByText("Monthly rent").closest("div") as HTMLElement;
+    expect(within(rentRow).getByText("Not provided")).toBeInTheDocument();
+    expect(within(rentRow).queryByText(/from property data/i)).not.toBeInTheDocument();
+    expect(within(rentRow).queryByText("User input")).not.toBeInTheDocument();
   });
 });

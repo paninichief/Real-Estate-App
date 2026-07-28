@@ -39,3 +39,37 @@ describe("getPropertyDataProvider", () => {
     expect(getPropertyDataProvider()).toBe(getPropertyDataProvider());
   });
 });
+
+describe("getMockPropertyDataProvider (Codex finding 2)", () => {
+  it("always returns MockFixtureAdapter, even when PROPERTY_DATA_PROVIDER is explicitly 'rentcast'", async () => {
+    process.env.PROPERTY_DATA_PROVIDER = "rentcast";
+    const { getMockPropertyDataProvider } = await import("@/lib/property-data");
+    expect(getMockPropertyDataProvider().id).toBe("mock-fixture");
+  });
+
+  it("returns MockFixtureAdapter when PROPERTY_DATA_PROVIDER is unset too", async () => {
+    delete process.env.PROPERTY_DATA_PROVIDER;
+    const { getMockPropertyDataProvider } = await import("@/lib/property-data");
+    expect(getMockPropertyDataProvider().id).toBe("mock-fixture");
+  });
+
+  it("returns real mock fixture data regardless of the configured provider", async () => {
+    process.env.PROPERTY_DATA_PROVIDER = "rentcast";
+    const { getMockPropertyDataProvider } = await import("@/lib/property-data");
+    const property = await getMockPropertyDataProvider().getById("prop-maple-514");
+    expect(property?.address.value?.formatted).toBe("514 Maple Street, Detroit, MI 48214");
+  });
+
+  it("does not share a cached instance with getPropertyDataProvider — selecting rentcast for the general provider never leaks into the mock-only accessor", async () => {
+    process.env.PROPERTY_DATA_PROVIDER = "rentcast";
+    const { getPropertyDataProvider, getMockPropertyDataProvider } = await import("@/lib/property-data");
+    expect(getPropertyDataProvider().id).toBe("rentcast");
+    expect(getMockPropertyDataProvider().id).toBe("mock-fixture");
+  });
+
+  it("caches its own instance across calls, independent of getPropertyDataProvider's cache", async () => {
+    delete process.env.PROPERTY_DATA_PROVIDER;
+    const { getMockPropertyDataProvider } = await import("@/lib/property-data");
+    expect(getMockPropertyDataProvider()).toBe(getMockPropertyDataProvider());
+  });
+});
