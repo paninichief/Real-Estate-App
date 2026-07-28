@@ -5,6 +5,7 @@ const TOP_LEVEL_ROUTES = [
   "/investor-search",
   "/home-buyers",
   "/deal-analyzer",
+  "/deal-analyzer/manual",
   "/my-deals",
   "/profile",
   "/help",
