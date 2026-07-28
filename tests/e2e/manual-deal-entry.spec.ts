@@ -153,4 +153,105 @@ test.describe("Manual Deal Entry", () => {
     await expect(amountRadio).toBeChecked();
     await expect(amountRadio).toBeFocused();
   });
+
+  test("blocks expense-dependent metrics and names HOA as invalid when it is negative, leaving unrelated metrics calculated, then restores on correction", async ({
+    page,
+  }) => {
+    await page.goto("/deal-analyzer/manual");
+    await fillRequiredFields(page);
+    await page.getByRole("button", { name: /add more details/i }).click();
+    await page.getByLabel("HOA (monthly)").fill("-50");
+
+    const totalExpensesRow = page
+      .locator("dt", { hasText: "Total monthly operating expenses" })
+      .locator("xpath=..");
+    await expect(totalExpensesRow.getByText(/not calculated/i)).toBeVisible();
+    await expect(totalExpensesRow.getByText(/invalid/i)).toBeVisible();
+    await expect(totalExpensesRow.getByText(/hoa/i)).toBeVisible();
+
+    // Unrelated metrics stay calculated.
+    await expect(page.getByText("$200.00")).toBeVisible(); // price per sqft
+
+    await page.getByLabel("HOA (monthly)").fill("50");
+    await expect(totalExpensesRow.getByText(/not calculated/i)).toHaveCount(0);
+    await expect(totalExpensesRow.getByText("$50.00")).toBeVisible();
+  });
+
+  test("blocks loan amount when down payment exceeds purchase price, leaving cap rate calculated", async ({
+    page,
+  }) => {
+    await page.goto("/deal-analyzer/manual");
+    await fillRequiredFields(page);
+    await page.getByRole("button", { name: /add more details/i }).click();
+    await page.getByLabel("Purchase price").fill("150000");
+    await page.getByLabel("Down payment").fill("200000");
+
+    const loanAmountRow = page.locator("dt", { hasText: "Loan amount" }).locator("xpath=..");
+    await expect(loanAmountRow.getByText(/not calculated/i)).toBeVisible();
+    await expect(loanAmountRow.getByText(/invalid/i)).toBeVisible();
+    await expect(loanAmountRow.getByText(/down payment/i)).toBeVisible();
+
+    const capRateRow = page.locator("dt", { hasText: "Cap rate" }).locator("xpath=..");
+    await expect(capRateRow.getByText(/not calculated/i)).toHaveCount(0);
+  });
+
+  test("adds an optional Property condition select with the exact options, informational only", async ({ page }) => {
+    await page.goto("/deal-analyzer/manual");
+    await page.getByRole("button", { name: /add more details/i }).click();
+
+    const select = page.getByLabel("Property condition");
+    const optionTexts = await select.locator("option").allTextContents();
+    expect(optionTexts).toEqual(["", "Excellent", "Good", "Fair", "Poor", "Needs renovation", "Unknown"]);
+
+    const row = page.locator("dt", { hasText: "Property condition" }).locator("xpath=..");
+    await expect(row.getByText("Not provided")).toBeVisible();
+
+    await select.selectOption("Fair");
+    await expect(row.getByText("Fair")).toBeVisible();
+    await expect(row.getByText("User input")).toBeVisible();
+    await expect(row.getByText(/not included in these calculations/i)).toBeVisible();
+  });
+
+  test("preserves a dollar down payment entered before purchase price, deriving the percentage once purchase price becomes valid, even while Percent mode stays visible", async ({
+    page,
+  }) => {
+    await page.goto("/deal-analyzer/manual");
+    await page.getByRole("button", { name: /add more details/i }).click();
+
+    await page.getByLabel("Down payment").fill("30000");
+    await page.getByRole("radio", { name: "Percent (%)" }).check();
+    await expect(page.getByLabel("Down payment percentage")).toHaveValue("");
+
+    await page.getByLabel("Purchase price").fill("150000");
+    await expect(page.getByLabel("Down payment percentage")).toHaveValue("20");
+
+    await page.getByRole("radio", { name: "Amount ($)" }).check();
+    await expect(page.getByLabel("Down payment")).toHaveValue("30000");
+  });
+
+  test("shows an accessible error immediately for an out-of-range down payment percentage, independent of purchase price, without converting it to a dollar amount", async ({
+    page,
+  }) => {
+    await page.goto("/deal-analyzer/manual");
+    await fillRequiredFields(page);
+    await page.getByRole("button", { name: /add more details/i }).click();
+    await page.getByRole("radio", { name: "Percent (%)" }).check();
+
+    const percent = page.getByLabel("Down payment percentage");
+    await percent.fill("-1");
+    await expect(page.getByText(/between 0 and 100/i)).toBeVisible();
+    await expect(percent).toHaveAttribute("aria-invalid", "true");
+    await expect(percent).toHaveValue("-1");
+    await expect(page.getByText(/^Calculated down payment:/)).toHaveCount(0);
+
+    const loanAmountRow = page.locator("dt", { hasText: "Loan amount" }).locator("xpath=..");
+    await expect(loanAmountRow.getByText(/not calculated/i)).toBeVisible();
+    await expect(loanAmountRow.getByText(/down payment percentage/i)).toBeVisible();
+
+    // Corrects to a valid percentage — error clears immediately and calculation resumes.
+    await percent.fill("20");
+    await expect(page.getByText(/between 0 and 100/i)).toHaveCount(0);
+    await expect(page.getByText("Calculated down payment: $50,000.00")).toBeVisible();
+    await expect(loanAmountRow.getByText(/not calculated/i)).toHaveCount(0);
+  });
 });

@@ -28,6 +28,7 @@ const FULL_VALUES: ManualDealFormValues = {
   renovationCosts: 0,
   occupancy: "Occupied",
   section8Status: null,
+  propertyCondition: "Good",
 };
 
 const REQUIRED_ONLY_VALUES: ManualDealFormValues = {
@@ -56,6 +57,13 @@ function missing(result: ManualDealMetricResult): string[] {
     throw new Error(`Expected "not_calculated", got "${result.status}": ${JSON.stringify(result)}`);
   }
   return [...result.missingFields].sort();
+}
+
+function invalid(result: ManualDealMetricResult): string[] {
+  if (result.status !== "not_calculated") {
+    throw new Error(`Expected "not_calculated", got "${result.status}": ${JSON.stringify(result)}`);
+  }
+  return [...result.invalidFields].sort();
 }
 
 function unavailableReason(result: ManualDealMetricResult): string {
@@ -242,6 +250,107 @@ describe("calculateManualDeal — a user-entered $0 does not count as missing", 
     // FULL_VALUES already sets hoa: 0 — confirm it is not treated as blank.
     const results = calculateManualDeal(FULL_VALUES);
     expect(calculated(results.totalMonthlyOperatingExpenses)).toBe(600);
+  });
+});
+
+describe("calculateManualDeal — invalid values never contribute, only block the metrics that need them", () => {
+  it("blocks expense-dependent metrics and names HOA when it is negative, leaving unrelated metrics calculated", () => {
+    const values: ManualDealFormValues = { ...FULL_VALUES, hoa: -50 };
+    const results = calculateManualDeal(values, new Set(["hoa"]));
+
+    expect(invalid(results.totalMonthlyOperatingExpenses)).toEqual(["HOA"]);
+    expect(missing(results.totalMonthlyOperatingExpenses)).toEqual([]);
+    expect(invalid(results.totalAnnualOperatingExpenses)).toEqual(["HOA"]);
+    expect(invalid(results.monthlyNOI)).toEqual(["HOA"]);
+    expect(invalid(results.annualNOI)).toEqual(["HOA"]);
+    expect(invalid(results.capRate)).toEqual(["HOA"]);
+    expect(invalid(results.monthlyCashFlow)).toEqual(["HOA"]);
+    expect(invalid(results.annualCashFlow)).toEqual(["HOA"]);
+    expect(invalid(results.cashOnCashReturn)).toEqual(["HOA"]);
+
+    // Unrelated metrics are not hidden just because HOA is invalid elsewhere.
+    expect(calculated(results.pricePerSquareFoot)).toBe(200);
+    expect(calculated(results.annualRentalIncome)).toBe(24_000);
+    expect(calculated(results.loanAmount)).toBe(200_000);
+    expect(calculated(results.monthlyMortgagePayment)).toBeCloseTo(1199.1, 1);
+  });
+
+  it("never lets a negative expense value reach the calculated total", () => {
+    // If -50 were actually summed in, the total would be 600 - 50 = 550 and
+    // would report as "calculated" — it must instead be fully blocked.
+    const values: ManualDealFormValues = { ...FULL_VALUES, hoa: -50 };
+    const results = calculateManualDeal(values, new Set(["hoa"]));
+    expect(results.totalMonthlyOperatingExpenses.status).toBe("not_calculated");
+  });
+
+  it("blocks loan amount and financing metrics and names Down payment when it exceeds purchase price, leaving cap rate calculated", () => {
+    const values: ManualDealFormValues = { ...FULL_VALUES, downPayment: 300_000 };
+    const results = calculateManualDeal(values, new Set(["downPayment"]));
+
+    expect(invalid(results.loanAmount)).toEqual(["Down payment"]);
+    expect(invalid(results.monthlyMortgagePayment)).toEqual(["Down payment"]);
+    expect(invalid(results.monthlyCashFlow)).toEqual(["Down payment"]);
+    expect(invalid(results.annualCashFlow)).toEqual(["Down payment"]);
+    expect(invalid(results.cashOnCashReturn)).toEqual(["Down payment"]);
+
+    // Cap rate needs purchase price and NOI, not down payment — unaffected.
+    expect(calculated(results.capRate)).toBeCloseTo(0.0672, 4);
+    expect(calculated(results.totalMonthlyOperatingExpenses)).toBe(600);
+    expect(calculated(results.monthlyNOI)).toBe(1400);
+  });
+
+  it("reports both a missing and an invalid field together when both apply to the same metric", () => {
+    const values: ManualDealFormValues = { ...FULL_VALUES, monthlyRent: null, hoa: -50 };
+    const results = calculateManualDeal(values, new Set(["hoa"]));
+
+    expect(missing(results.monthlyNOI)).toEqual(["Monthly rent"]);
+    expect(invalid(results.monthlyNOI)).toEqual(["HOA"]);
+  });
+
+  it("restores calculation once the invalid field is corrected", () => {
+    const invalidValues: ManualDealFormValues = { ...FULL_VALUES, hoa: -50 };
+    const blocked = calculateManualDeal(invalidValues, new Set(["hoa"]));
+    expect(blocked.totalMonthlyOperatingExpenses.status).toBe("not_calculated");
+    expect(blocked.capRate.status).toBe("not_calculated");
+
+    const fixed = calculateManualDeal(FULL_VALUES, new Set());
+    expect(calculated(fixed.totalMonthlyOperatingExpenses)).toBe(600);
+    expect(calculated(fixed.capRate)).toBeCloseTo(0.0672, 4);
+  });
+
+  it("blocks the mortgage payment and names Interest rate when it is negative", () => {
+    const values: ManualDealFormValues = { ...FULL_VALUES, interestRatePercent: -1 };
+    const results = calculateManualDeal(values, new Set(["interestRatePercent"]));
+
+    expect(invalid(results.monthlyMortgagePayment)).toEqual(["Interest rate"]);
+    expect(invalid(results.monthlyCashFlow)).toEqual(["Interest rate"]);
+    expect(calculated(results.loanAmount)).toBe(200_000);
+  });
+
+  it("blocks the mortgage payment and names Loan term when it is not positive", () => {
+    const values: ManualDealFormValues = { ...FULL_VALUES, loanTermYears: 0 };
+    const results = calculateManualDeal(values, new Set(["loanTermYears"]));
+
+    expect(invalid(results.monthlyMortgagePayment)).toEqual(["Loan term"]);
+    expect(invalid(results.cashOnCashReturn)).toEqual(["Loan term"]);
+  });
+
+  it("does not treat an untouched, valid field as invalid just because other fields are invalid", () => {
+    const values: ManualDealFormValues = { ...FULL_VALUES, hoa: -50 };
+    const results = calculateManualDeal(values, new Set(["hoa"]));
+    expect(results.loanAmount.status).toBe("calculated");
+  });
+
+  it("blocks loan amount and cash-on-cash return and names Down payment percentage as invalid, independent of purchase price validity", () => {
+    const results = calculateManualDeal(FULL_VALUES, new Set(["downPaymentPercent"]));
+
+    expect(invalid(results.loanAmount)).toEqual(["Down payment percentage"]);
+    expect(invalid(results.monthlyMortgagePayment)).toEqual(["Down payment percentage"]);
+    expect(invalid(results.monthlyCashFlow)).toEqual(["Down payment percentage"]);
+    expect(invalid(results.cashOnCashReturn)).toEqual(["Down payment percentage"]);
+
+    // Cap rate needs neither down payment nor its percentage — unaffected.
+    expect(calculated(results.capRate)).toBeCloseTo(0.0672, 4);
   });
 });
 

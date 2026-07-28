@@ -25,6 +25,7 @@ const REQUIRED_ONLY: ManualDealFormValues = {
   renovationCosts: null,
   occupancy: null,
   section8Status: null,
+  propertyCondition: null,
 };
 
 const FULL_VALUES: ManualDealFormValues = {
@@ -43,6 +44,7 @@ const FULL_VALUES: ManualDealFormValues = {
   renovationCosts: 5000,
   occupancy: "Occupied",
   section8Status: "HAP Contract Confirmed",
+  propertyCondition: "Good",
 };
 
 describe("ManualDealResults — entered-value labeling", () => {
@@ -61,12 +63,29 @@ describe("ManualDealResults — entered-value labeling", () => {
     expect(screen.getAllByText("Not provided").length).toBeGreaterThan(0);
   });
 
-  it("states that Number of units, Renovation costs, Occupancy, and Section 8 status are not part of the calculations, even when filled in", () => {
+  it("states that Number of units, Renovation costs, Occupancy, Section 8 status, and Property condition are not part of the calculations, even when filled in", () => {
     const results = calculateManualDeal(FULL_VALUES);
     render(<ManualDealResults values={FULL_VALUES} results={results} />);
 
     const notices = screen.getAllByText(/not included in (the |these )?calculations/i);
-    expect(notices.length).toBeGreaterThanOrEqual(4);
+    expect(notices.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("shows Property condition as User input when selected", () => {
+    const results = calculateManualDeal(FULL_VALUES);
+    render(<ManualDealResults values={FULL_VALUES} results={results} />);
+
+    const row = screen.getByText("Property condition").closest("div") as HTMLElement;
+    expect(within(row).getByText("Good")).toBeInTheDocument();
+    expect(within(row).getByText("User input")).toBeInTheDocument();
+  });
+
+  it("shows Property condition as Not provided when blank", () => {
+    const results = calculateManualDeal(REQUIRED_ONLY);
+    render(<ManualDealResults values={REQUIRED_ONLY} results={results} />);
+
+    const row = screen.getByText("Property condition").closest("div") as HTMLElement;
+    expect(within(row).getByText("Not provided")).toBeInTheDocument();
   });
 });
 
@@ -131,6 +150,31 @@ describe("ManualDealResults — down payment mode provenance", () => {
 
     const calculatedRow = screen.getByText("Down payment (calculated)").closest("div") as HTMLElement;
     expect(within(calculatedRow).getByText("Not provided")).toBeInTheDocument();
+  });
+});
+
+describe("ManualDealResults — invalid value display", () => {
+  it("shows Not calculated and names the invalid field, distinct from a missing field", () => {
+    const values: ManualDealFormValues = { ...FULL_VALUES, hoa: -50 };
+    const results = calculateManualDeal(values, new Set(["hoa"]));
+    render(<ManualDealResults values={values} results={results} />);
+
+    const row = screen.getByText("Total monthly operating expenses").closest("div") as HTMLElement;
+    expect(within(row).getByText(/not calculated/i)).toBeInTheDocument();
+    expect(within(row).getByText(/invalid/i)).toBeInTheDocument();
+    expect(within(row).getByText(/hoa/i)).toBeInTheDocument();
+  });
+
+  it("names both the missing and the invalid field when a metric is blocked by both at once", () => {
+    const values: ManualDealFormValues = { ...FULL_VALUES, monthlyRent: null, hoa: -50 };
+    const results = calculateManualDeal(values, new Set(["hoa"]));
+    render(<ManualDealResults values={values} results={results} />);
+
+    const row = screen.getByText("Monthly NOI").closest("div") as HTMLElement;
+    expect(within(row).getByText(/missing/i)).toBeInTheDocument();
+    expect(within(row).getByText(/monthly rent/i)).toBeInTheDocument();
+    expect(within(row).getByText(/invalid/i)).toBeInTheDocument();
+    expect(within(row).getByText(/hoa/i)).toBeInTheDocument();
   });
 });
 

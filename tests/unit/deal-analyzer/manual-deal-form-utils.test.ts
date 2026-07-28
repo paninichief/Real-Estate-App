@@ -57,6 +57,7 @@ describe("parseManualDealValues", () => {
       renovationCosts: 0,
       occupancy: "Occupied",
       section8Status: null,
+      propertyCondition: null,
     });
   });
 

@@ -381,4 +381,272 @@ describe("ManualDealEntryForm — down payment Amount/Percent toggle", () => {
     percentRadio.focus();
     expect(percentRadio).toHaveFocus();
   });
+
+  it("rejects a dollar amount exceeding the purchase price and blocks the financing metrics that use it, leaving cap rate calculated", () => {
+    render(<ManualDealEntryForm />);
+    fillRequiredFields();
+    expandDetails();
+    fireEvent.change(screen.getByLabelText("Purchase price"), { target: { value: "150000" } });
+    fireEvent.change(screen.getByLabelText("Down payment"), { target: { value: "200000" } });
+
+    const loanAmountRow = screen.getByText("Loan amount").closest("div") as HTMLElement;
+    expect(within(loanAmountRow).getByText(/not calculated/i)).toBeInTheDocument();
+    expect(within(loanAmountRow).getByText(/invalid/i)).toBeInTheDocument();
+    expect(within(loanAmountRow).getByText(/down payment/i)).toBeInTheDocument();
+
+    // Cap rate does not depend on down payment and must remain unaffected.
+    const capRateRow = screen.getByText("Cap rate").closest("div") as HTMLElement;
+    expect(within(capRateRow).queryByText(/not calculated/i)).not.toBeInTheDocument();
+  });
+
+  it("preserves a dollar down payment entered before purchase price, even after switching to Percent mode and back", () => {
+    render(<ManualDealEntryForm />);
+    expandDetails();
+
+    // Purchase price is still blank; enter the dollar amount directly.
+    fireEvent.change(screen.getByLabelText("Down payment"), { target: { value: "30000" } });
+
+    // Switching to Percent mode with purchase price still blank correctly
+    // shows a blank percentage — there isn't enough information yet.
+    fireEvent.click(screen.getByRole("radio", { name: "Percent (%)" }));
+    expect(screen.getByLabelText("Down payment percentage")).toHaveValue(null);
+
+    fireEvent.click(screen.getByRole("radio", { name: "Amount ($)" }));
+    expect(screen.getByLabelText("Down payment")).toHaveValue(30000);
+  });
+
+  it("derives the percentage from the preserved dollar amount once purchase price becomes valid, without erasing it, even while Percent mode is still visible", () => {
+    render(<ManualDealEntryForm />);
+    expandDetails();
+
+    // Enter a dollar amount while purchase price is blank, then switch to
+    // Percent mode (still blank there) and only then supply a purchase
+    // price — this is the exact out-of-order sequence that used to erase
+    // the entered amount.
+    fireEvent.change(screen.getByLabelText("Down payment"), { target: { value: "30000" } });
+    fireEvent.click(screen.getByRole("radio", { name: "Percent (%)" }));
+    fireEvent.change(screen.getByLabelText("Purchase price"), { target: { value: "150000" } });
+
+    expect(screen.getByLabelText("Down payment percentage")).toHaveValue(20);
+
+    fireEvent.click(screen.getByRole("radio", { name: "Amount ($)" }));
+    expect(screen.getByLabelText("Down payment")).toHaveValue(30000);
+  });
+
+  it("preserves a dollar amount entered while purchase price is merely invalid (not just blank), deriving the percentage once purchase price is fixed", () => {
+    render(<ManualDealEntryForm />);
+    expandDetails();
+
+    fireEvent.change(screen.getByLabelText("Purchase price"), { target: { value: "0" } });
+    fireEvent.change(screen.getByLabelText("Down payment"), { target: { value: "30000" } });
+    fireEvent.click(screen.getByRole("radio", { name: "Percent (%)" }));
+    expect(screen.getByLabelText("Down payment percentage")).toHaveValue(null);
+
+    fireEvent.change(screen.getByLabelText("Purchase price"), { target: { value: "150000" } });
+    expect(screen.getByLabelText("Down payment percentage")).toHaveValue(20);
+
+    fireEvent.click(screen.getByRole("radio", { name: "Amount ($)" }));
+    expect(screen.getByLabelText("Down payment")).toHaveValue(30000);
+  });
+});
+
+describe("ManualDealEntryForm — invalid values never contribute to calculations", () => {
+  it("blocks expense-dependent metrics and names HOA when it is negative, leaving unrelated metrics calculated", () => {
+    render(<ManualDealEntryForm />);
+    fillRequiredFields();
+    expandDetails();
+
+    fireEvent.change(screen.getByLabelText("HOA (monthly)"), { target: { value: "-50" } });
+
+    const totalExpensesRow = screen
+      .getByText("Total monthly operating expenses")
+      .closest("div") as HTMLElement;
+    expect(within(totalExpensesRow).getByText(/not calculated/i)).toBeInTheDocument();
+    expect(within(totalExpensesRow).getByText(/invalid/i)).toBeInTheDocument();
+    expect(within(totalExpensesRow).getByText(/hoa/i)).toBeInTheDocument();
+
+    // Unrelated metrics (no expense dependency) must remain calculated.
+    expect(screen.getByText("$200.00")).toBeInTheDocument(); // price per sqft
+    const annualRentalIncomeRow = screen.getByText("Annual rental income").closest("div") as HTMLElement;
+    expect(within(annualRentalIncomeRow).getByText("$24,000.00")).toBeInTheDocument();
+  });
+
+  it("restores calculation immediately once the invalid HOA value is corrected", () => {
+    render(<ManualDealEntryForm />);
+    fillRequiredFields();
+    expandDetails();
+
+    const hoa = screen.getByLabelText("HOA (monthly)");
+    fireEvent.change(hoa, { target: { value: "-50" } });
+    let totalExpensesRow = screen.getByText("Total monthly operating expenses").closest("div") as HTMLElement;
+    expect(within(totalExpensesRow).getByText(/not calculated/i)).toBeInTheDocument();
+
+    fireEvent.change(hoa, { target: { value: "50" } });
+    totalExpensesRow = screen.getByText("Total monthly operating expenses").closest("div") as HTMLElement;
+    expect(within(totalExpensesRow).queryByText(/not calculated/i)).not.toBeInTheDocument();
+    expect(within(totalExpensesRow).getByText("$50.00")).toBeInTheDocument();
+  });
+});
+
+describe("ManualDealEntryForm — Property condition field", () => {
+  it("renders Property condition as a select with the exact options, defaulting to blank", () => {
+    render(<ManualDealEntryForm />);
+    expandDetails();
+
+    const select = screen.getByLabelText("Property condition") as HTMLSelectElement;
+    expect(select.tagName).toBe("SELECT");
+    const optionLabels = Array.from(select.options).map((option) => option.textContent);
+    expect(optionLabels).toEqual(["", "Excellent", "Good", "Fair", "Poor", "Needs renovation", "Unknown"]);
+    expect(select).toHaveValue("");
+  });
+
+  it("shows Property condition as User input with the informational note once selected, and Not provided while blank", () => {
+    render(<ManualDealEntryForm />);
+    expandDetails();
+
+    // Scoped to "Your entries": the form field's own <label> also reads
+    // "Property condition", so an unscoped query is ambiguous.
+    const yourEntries = screen.getByRole("region", { name: "Your entries" });
+    const conditionRow = within(yourEntries).getByText("Property condition").closest("div") as HTMLElement;
+    expect(within(conditionRow).getByText("Not provided")).toBeInTheDocument();
+    expect(within(conditionRow).getByText(/not included in these calculations/i)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Property condition"), { target: { value: "Good" } });
+
+    const updatedRow = within(yourEntries).getByText("Property condition").closest("div") as HTMLElement;
+    expect(within(updatedRow).getByText("Good")).toBeInTheDocument();
+    expect(within(updatedRow).getByText("User input")).toBeInTheDocument();
+    expect(within(updatedRow).getByText(/not included in these calculations/i)).toBeInTheDocument();
+  });
+
+  it("does not affect any calculated metric when a property condition is selected", () => {
+    render(<ManualDealEntryForm />);
+    fillRequiredFields();
+    expandDetails();
+    fireEvent.change(screen.getByLabelText("Property condition"), { target: { value: "Poor" } });
+
+    expect(screen.getByText("$200.00")).toBeInTheDocument(); // price per sqft, unaffected
+  });
+});
+
+describe("ManualDealEntryForm — down payment percentage is validated independently of purchase price", () => {
+  it("shows an accessible error immediately for -1% with purchase price blank, and blocks financing metrics naming Down payment percentage", () => {
+    render(<ManualDealEntryForm />);
+    fillRequiredFields();
+    fireEvent.change(screen.getByLabelText("Purchase price"), { target: { value: "" } });
+    expandDetails();
+    fireEvent.click(screen.getByRole("radio", { name: "Percent (%)" }));
+
+    const percent = screen.getByLabelText("Down payment percentage");
+    fireEvent.change(percent, { target: { value: "-1" } });
+    // No blur — the error must appear immediately.
+    expect(screen.getByText(/between 0 and 100/i)).toBeInTheDocument();
+    expect(percent).toHaveAttribute("aria-invalid", "true");
+    expect(percent).toHaveValue(-1);
+
+    const loanAmountRow = screen.getByText("Loan amount").closest("div") as HTMLElement;
+    expect(within(loanAmountRow).getByText(/not calculated/i)).toBeInTheDocument();
+    expect(within(loanAmountRow).getByText(/invalid/i)).toBeInTheDocument();
+    expect(within(loanAmountRow).getByText(/down payment percentage/i)).toBeInTheDocument();
+  });
+
+  it("shows an accessible error immediately for 101% with purchase price blank, and blocks financing metrics naming Down payment percentage", () => {
+    render(<ManualDealEntryForm />);
+    fillRequiredFields();
+    fireEvent.change(screen.getByLabelText("Purchase price"), { target: { value: "" } });
+    expandDetails();
+    fireEvent.click(screen.getByRole("radio", { name: "Percent (%)" }));
+
+    const percent = screen.getByLabelText("Down payment percentage");
+    fireEvent.change(percent, { target: { value: "101" } });
+    expect(screen.getByText(/between 0 and 100/i)).toBeInTheDocument();
+    expect(percent).toHaveAttribute("aria-invalid", "true");
+    expect(percent).toHaveValue(101);
+
+    const cashOnCashRow = screen.getByText("Cash-on-cash return").closest("div") as HTMLElement;
+    expect(within(cashOnCashRow).getByText(/not calculated/i)).toBeInTheDocument();
+    expect(within(cashOnCashRow).getByText(/down payment percentage/i)).toBeInTheDocument();
+  });
+
+  it("shows an accessible error for -1% with a valid purchase price too, and does not convert it into a dollar amount", () => {
+    render(<ManualDealEntryForm />);
+    fillRequiredFields(); // purchase price = 250000, valid
+    expandDetails();
+    fireEvent.click(screen.getByRole("radio", { name: "Percent (%)" }));
+
+    const percent = screen.getByLabelText("Down payment percentage");
+    fireEvent.change(percent, { target: { value: "-1" } });
+
+    expect(screen.getByText(/between 0 and 100/i)).toBeInTheDocument();
+    expect(screen.queryByText(/^Calculated down payment:/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("radio", { name: "Amount ($)" }));
+    expect(screen.getByLabelText("Down payment")).toHaveValue(null);
+  });
+
+  it("shows an accessible error for 101% with a valid purchase price too, and does not convert it into a dollar amount", () => {
+    render(<ManualDealEntryForm />);
+    fillRequiredFields();
+    expandDetails();
+    fireEvent.click(screen.getByRole("radio", { name: "Percent (%)" }));
+
+    const percent = screen.getByLabelText("Down payment percentage");
+    fireEvent.change(percent, { target: { value: "101" } });
+
+    expect(screen.getByText(/between 0 and 100/i)).toBeInTheDocument();
+    expect(screen.queryByText(/^Calculated down payment:/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("radio", { name: "Amount ($)" }));
+    expect(screen.getByLabelText("Down payment")).toHaveValue(null);
+  });
+
+  it("clears the error immediately once the percentage is corrected to a valid value, and recalculates", () => {
+    render(<ManualDealEntryForm />);
+    fillRequiredFields();
+    expandDetails();
+    fireEvent.click(screen.getByRole("radio", { name: "Percent (%)" }));
+
+    const percent = screen.getByLabelText("Down payment percentage");
+    fireEvent.change(percent, { target: { value: "150" } });
+    expect(screen.getByText(/between 0 and 100/i)).toBeInTheDocument();
+
+    fireEvent.change(percent, { target: { value: "20" } });
+    expect(screen.queryByText(/between 0 and 100/i)).not.toBeInTheDocument();
+    expect(screen.getByText("Calculated down payment: $50,000.00")).toBeInTheDocument();
+
+    const loanAmountRow = screen.getByText("Loan amount").closest("div") as HTMLElement;
+    expect(within(loanAmountRow).queryByText(/not calculated/i)).not.toBeInTheDocument();
+  });
+
+  it("preserves the invalid entered percentage rather than clearing it", () => {
+    render(<ManualDealEntryForm />);
+    expandDetails();
+    fireEvent.click(screen.getByRole("radio", { name: "Percent (%)" }));
+
+    const percent = screen.getByLabelText("Down payment percentage");
+    fireEvent.change(percent, { target: { value: "-1" } });
+    expect(percent).toHaveValue(-1);
+
+    fireEvent.change(percent, { target: { value: "101" } });
+    expect(percent).toHaveValue(101);
+  });
+
+  it("keeps the percent field keyboard-focusable with correctly wired aria-invalid and aria-describedby", () => {
+    render(<ManualDealEntryForm />);
+    expandDetails();
+    fireEvent.click(screen.getByRole("radio", { name: "Percent (%)" }));
+
+    const percent = screen.getByLabelText("Down payment percentage");
+    fireEvent.change(percent, { target: { value: "-1" } });
+
+    expect(percent).toHaveAttribute("aria-invalid", "true");
+    const describedBy = percent.getAttribute("aria-describedby");
+    expect(describedBy).toBeTruthy();
+    const errorEl = document.getElementById(describedBy as string);
+    expect(errorEl).toHaveTextContent(/between 0 and 100/i);
+    expect(errorEl).toHaveAttribute("role", "alert");
+
+    percent.focus();
+    expect(percent).toHaveFocus();
+  });
 });

@@ -24,6 +24,7 @@ export const EMPTY_MANUAL_DEAL_RAW_VALUES: ManualDealRawValues = {
   renovationCosts: "",
   occupancy: "",
   section8Status: "",
+  propertyCondition: "",
 };
 
 /** Exported for reuse by the down-payment Amount/Percent toggle in the form component. */
@@ -66,6 +67,7 @@ export function parseManualDealValues(raw: ManualDealRawValues): ManualDealFormV
     renovationCosts: parseOptionalNumber(raw.renovationCosts),
     occupancy: parseOptionalText(raw.occupancy),
     section8Status: parseOptionalText(raw.section8Status),
+    propertyCondition: parseOptionalText(raw.propertyCondition),
   };
 }
 

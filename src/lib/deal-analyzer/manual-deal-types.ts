@@ -29,20 +29,25 @@ export interface ManualDealFormValues {
   occupancy: string | null;
   /** Informational only in this pass — not used by any calculation. */
   section8Status: string | null;
+  /** Informational only in this pass — not used by any calculation. */
+  propertyCondition: string | null;
 }
 
 /**
  * The result of one FinancialEngine-derived metric, honest about why a
  * value isn't shown rather than fabricating or silently omitting it:
- * - "calculated": every required input was present and the engine produced a value.
- * - "not_calculated": one or more required inputs are still blank; every one is named.
- * - "unavailable": every required input was present, but the math itself is
- *   undefined for the entered values (e.g. cash-on-cash return with an
- *   explicit $0 down payment) — distinct from a missing input.
+ * - "calculated": every required input was present and valid, and the engine produced a value.
+ * - "not_calculated": one or more inputs are still blank (`missingFields`) or
+ *   present but fail validation (`invalidFields`, e.g. a negative expense or
+ *   a down payment that exceeds the purchase price) — every one is named,
+ *   and an invalid value is never passed to the calculation.
+ * - "unavailable": every required input was present and valid, but the math
+ *   itself is undefined for the entered values (e.g. cash-on-cash return
+ *   with an explicit $0 down payment) — distinct from missing or invalid input.
  */
 export type ManualDealMetricResult =
   | { status: "calculated"; value: number }
-  | { status: "not_calculated"; missingFields: string[] }
+  | { status: "not_calculated"; missingFields: string[]; invalidFields: string[] }
   | { status: "unavailable"; reason: string };
 
 export interface ManualDealCalculationResults {

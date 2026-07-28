@@ -48,6 +48,7 @@ const ENTRY_ROWS_AFTER_DOWN_PAYMENT: EntryRow[] = [
   },
   { key: "occupancy", label: "Occupancy", format: (v: string) => v, informational: true },
   { key: "section8Status", label: "Section 8 status", format: (v: string) => v, informational: true },
+  { key: "propertyCondition", label: "Property condition", format: (v: string) => v, informational: true },
 ];
 
 interface MetricRow {
@@ -76,10 +77,15 @@ function MetricValue({ result, format }: { result: ManualDealMetricResult; forma
     return <span className="font-semibold tabular-nums text-navy-900 dark:text-white">{format(result.value)}</span>;
   }
   if (result.status === "not_calculated") {
+    const parts: string[] = [];
+    if (result.missingFields.length > 0) {
+      parts.push(`Missing: ${result.missingFields.join(", ")}`);
+    }
+    if (result.invalidFields.length > 0) {
+      parts.push(`Invalid: ${result.invalidFields.join(", ")}`);
+    }
     return (
-      <span className="text-sm text-ink-600 dark:text-ink-400">
-        Not calculated — Missing: {result.missingFields.join(", ")}
-      </span>
+      <span className="text-sm text-ink-600 dark:text-ink-400">Not calculated — {parts.join(". ")}</span>
     );
   }
   return <span className="text-sm text-ink-600 dark:text-ink-400">{result.reason}</span>;

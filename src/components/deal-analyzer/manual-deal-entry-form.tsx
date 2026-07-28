@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { calculateManualDeal } from "@/lib/deal-analyzer/manual-deal-calculations";
+import { calculateManualDeal, type ManualDealCalcInvalidField } from "@/lib/deal-analyzer/manual-deal-calculations";
 import {
   EMPTY_MANUAL_DEAL_RAW_VALUES,
   parseManualDealValues,
@@ -71,6 +71,12 @@ const OTHER_FIELDS: FieldConfig[] = [
       "Active Section 8 Tenant — Confirmed",
       "HAP Contract Confirmed",
     ],
+  },
+  {
+    key: "propertyCondition",
+    label: "Property condition",
+    type: "text",
+    selectOptions: ["Excellent", "Good", "Fair", "Poor", "Needs renovation", "Unknown"],
   },
 ];
 
@@ -271,16 +277,17 @@ function DownPaymentField({
             aria-describedby={percentError ? "downPaymentPercent-error" : "downPaymentPercent-calculated"}
             className={`${INPUT_CLASS} mt-2`}
           />
-          {percentError && (
+          {percentError ? (
             <p id="downPaymentPercent-error" role="alert" className="mt-1 text-sm text-red-600 dark:text-red-400">
               {percentError}
             </p>
+          ) : (
+            <p id="downPaymentPercent-calculated" className="mt-1 text-xs text-ink-400">
+              {calculatedAmount !== null
+                ? `Calculated down payment: ${formatCurrency(calculatedAmount)}`
+                : "Enter a valid purchase price to calculate the down payment amount."}
+            </p>
           )}
-          <p id="downPaymentPercent-calculated" className="mt-1 text-xs text-ink-400">
-            {calculatedAmount !== null
-              ? `Calculated down payment: ${formatCurrency(calculatedAmount)}`
-              : "Enter a valid purchase price to calculate the down payment amount."}
-          </p>
         </>
       )}
     </div>
@@ -300,10 +307,49 @@ export function ManualDealEntryForm() {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [downPaymentMode, setDownPaymentMode] = useState<DownPaymentMode>("amount");
   const [downPaymentPercentRaw, setDownPaymentPercentRaw] = useState("");
+  // Tracks which field the user last *typed into directly* — independent of
+  // `downPaymentMode`, which only tracks which field is currently *visible*.
+  // Purchase-price-driven recalculation must derive from this source, not
+  // from whichever field merely happens to be on screen: otherwise, viewing
+  // a not-yet-derivable (blank) shadow field in the other mode and then
+  // fixing purchase price would overwrite a perfectly valid, deliberately
+  // entered value with that blank shadow (see the regression tests for the
+  // exact out-of-order sequence this prevents).
+  const [downPaymentSource, setDownPaymentSource] = useState<DownPaymentMode>("amount");
 
   const values = useMemo(() => parseManualDealValues(rawValues), [rawValues]);
   const allErrors = useMemo(() => validateManualDealRawValues(rawValues), [rawValues]);
-  const results = useMemo(() => calculateManualDeal(values), [values]);
+
+  const downPaymentPercentValue = parseOptionalNumber(downPaymentPercentRaw);
+  // Validated independently of purchase price, and never gated by `touched`:
+  // an out-of-range percentage must be flagged immediately, whether or not
+  // purchase price is present or valid.
+  const downPaymentPercentError = validateDownPaymentPercent(downPaymentPercentValue);
+  const calculatedDownPaymentAmount = percentToAmount(values.purchasePrice, downPaymentPercentValue);
+
+  const invalidFieldKeys = useMemo(() => {
+    const invalid = new Set<ManualDealCalcInvalidField>();
+    for (const key of Object.keys(allErrors) as FieldKey[]) {
+      // A field is genuinely *invalid* only when it holds a present-but-bad
+      // value. A blank required field is *missing*, not invalid — that's
+      // already handled separately (and honestly) by calculateManualDeal's
+      // own missing-field tracking.
+      if (values[key] !== null) invalid.add(key);
+    }
+    // The percentage only counts toward the final down payment when it's
+    // the field the user is actually driving (`downPaymentSource`); while
+    // Amount mode is the source, an out-of-range percent shadow left over
+    // from an earlier attempt must not block anything.
+    if (downPaymentSource === "percent" && downPaymentPercentError) {
+      invalid.add("downPaymentPercent");
+    }
+    return invalid;
+  }, [allErrors, values, downPaymentSource, downPaymentPercentError]);
+
+  const results = useMemo(
+    () => calculateManualDeal(values, invalidFieldKeys),
+    [values, invalidFieldKeys],
+  );
 
   const visibleErrors = useMemo(() => {
     const visible: Partial<Record<FieldKey, string | undefined>> = {};
@@ -313,24 +359,15 @@ export function ManualDealEntryForm() {
     return visible;
   }, [touched, allErrors]);
 
-  const downPaymentPercentValue = parseOptionalNumber(downPaymentPercentRaw);
-  const downPaymentPercentError = touched.downPayment
-    ? validateDownPaymentPercent(downPaymentPercentValue)
-    : undefined;
-  const calculatedDownPaymentAmount = percentToAmount(values.purchasePrice, downPaymentPercentValue);
-
   /**
-   * Purchase price drives the down-payment shadow field: editing it while
-   * in Percent mode immediately refreshes the calculated dollar amount;
-   * editing it while in Amount mode keeps the percent shadow in sync so a
-   * later switch to Percent mode is a lossless reveal, not a fresh
-   * conversion (see the Percent<->Amount switch handlers below for why
-   * that avoids drift).
+   * Purchase price drives the down-payment shadow field, deriving from
+   * whichever field is the authoritative *source* (see `downPaymentSource`
+   * above) — never from whichever field is merely visible.
    */
   function handleChange(key: FieldKey, value: string) {
     if (key === "purchasePrice") {
       const purchasePrice = parseOptionalNumber(value);
-      if (downPaymentMode === "percent") {
+      if (downPaymentSource === "percent") {
         const amount = percentToAmount(purchasePrice, downPaymentPercentValue);
         setRawValues((prev) => ({
           ...prev,
@@ -354,6 +391,7 @@ export function ManualDealEntryForm() {
 
   /** Typing a dollar amount directly keeps the percent shadow continuously in sync. */
   function handleDownPaymentAmountChange(value: string) {
+    setDownPaymentSource("amount");
     setRawValues((prev) => ({ ...prev, downPayment: value }));
     const amount = parseOptionalNumber(value);
     const percent = amountToPercent(values.purchasePrice, amount);
@@ -365,10 +403,19 @@ export function ManualDealEntryForm() {
    * is what makes mode-switching itself a pure, lossless reveal rather than
    * a fresh (and potentially compounding) conversion: the target field is
    * already correct by the time the user switches to it.
+   *
+   * An out-of-range percentage (below 0 or above 100) is never converted
+   * into a dollar amount at all — the down-payment shadow is simply left
+   * untouched, since a percentage outside 0–100 has no meaningful dollar
+   * equivalent to derive.
    */
   function handleDownPaymentPercentChange(value: string) {
+    setDownPaymentSource("percent");
     setDownPaymentPercentRaw(value);
     const percent = parseOptionalNumber(value);
+    if (validateDownPaymentPercent(percent)) {
+      return;
+    }
     const amount = percentToAmount(values.purchasePrice, percent);
     setRawValues((prev) => ({
       ...prev,
@@ -376,7 +423,7 @@ export function ManualDealEntryForm() {
     }));
   }
 
-  /** A pure visibility toggle — no conversion happens here (see above). */
+  /** A pure visibility toggle — no conversion happens here, and it never changes `downPaymentSource`. */
   function handleDownPaymentModeChange(mode: DownPaymentMode) {
     setDownPaymentMode(mode);
   }
