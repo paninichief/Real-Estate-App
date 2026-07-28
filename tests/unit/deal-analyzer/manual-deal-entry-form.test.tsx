@@ -80,6 +80,54 @@ describe("ManualDealEntryForm — required fields", () => {
   });
 });
 
+describe("ManualDealEntryForm — bedrooms must be a whole number", () => {
+  it("accepts 0 bedrooms", () => {
+    render(<ManualDealEntryForm />);
+    const bedrooms = screen.getByLabelText("Bedrooms");
+    fireEvent.change(bedrooms, { target: { value: "0" } });
+    fireEvent.blur(bedrooms);
+    expect(screen.queryByText(/whole number/i)).not.toBeInTheDocument();
+  });
+
+  it("accepts 1 bedroom", () => {
+    render(<ManualDealEntryForm />);
+    const bedrooms = screen.getByLabelText("Bedrooms");
+    fireEvent.change(bedrooms, { target: { value: "1" } });
+    fireEvent.blur(bedrooms);
+    expect(screen.queryByText(/whole number/i)).not.toBeInTheDocument();
+  });
+
+  it("rejects 1.5 bedrooms with an accessible error and preserves the entered value", () => {
+    render(<ManualDealEntryForm />);
+    const bedrooms = screen.getByLabelText("Bedrooms");
+    fireEvent.change(bedrooms, { target: { value: "1.5" } });
+    fireEvent.blur(bedrooms);
+
+    expect(screen.getByText(/whole number/i)).toBeInTheDocument();
+    expect(bedrooms).toHaveAttribute("aria-invalid", "true");
+    expect(bedrooms).toHaveValue(1.5);
+  });
+
+  it("rejects negative bedrooms", () => {
+    render(<ManualDealEntryForm />);
+    const bedrooms = screen.getByLabelText("Bedrooms");
+    fireEvent.change(bedrooms, { target: { value: "-1" } });
+    fireEvent.blur(bedrooms);
+    expect(screen.getByText(/bedrooms must be zero or a positive number/i)).toBeInTheDocument();
+  });
+
+  it("clears the whole-number error immediately once corrected from 1.5 to 2", () => {
+    render(<ManualDealEntryForm />);
+    const bedrooms = screen.getByLabelText("Bedrooms");
+    fireEvent.change(bedrooms, { target: { value: "1.5" } });
+    fireEvent.blur(bedrooms);
+    expect(screen.getByText(/whole number/i)).toBeInTheDocument();
+
+    fireEvent.change(bedrooms, { target: { value: "2" } });
+    expect(screen.queryByText(/whole number/i)).not.toBeInTheDocument();
+  });
+});
+
 describe("ManualDealEntryForm — Add More Details disclosure", () => {
   it("is a real button (keyboard-operable) and starts collapsed", () => {
     render(<ManualDealEntryForm />);
@@ -648,5 +696,96 @@ describe("ManualDealEntryForm — down payment percentage is validated independe
 
     percent.focus();
     expect(percent).toHaveFocus();
+  });
+});
+
+describe("ManualDealEntryForm — down payment provenance survives mode toggling", () => {
+  it("keeps the dollar amount labeled User input after switching to view Percent mode, since the user typed the dollar amount", () => {
+    render(<ManualDealEntryForm />);
+    fillRequiredFields();
+    expandDetails();
+    fireEvent.change(screen.getByLabelText("Purchase price"), { target: { value: "150000" } });
+    fireEvent.change(screen.getByLabelText("Down payment"), { target: { value: "30000" } });
+
+    fireEvent.click(screen.getByRole("radio", { name: "Percent (%)" }));
+
+    const yourEntries = screen.getByRole("region", { name: "Your entries" });
+    const calculatedRow = within(yourEntries).getByText("Down payment (calculated)").closest("div") as HTMLElement;
+    expect(within(calculatedRow).getByText("$30,000.00")).toBeInTheDocument();
+    expect(within(calculatedRow).getByText("User input")).toBeInTheDocument();
+
+    const percentRow = within(yourEntries).getByText("Down payment percentage").closest("div") as HTMLElement;
+    expect(within(percentRow).getByText("Calculated from user input")).toBeInTheDocument();
+  });
+
+  it("keeps the percentage labeled User input after switching to view Amount mode, since the user typed the percentage", () => {
+    render(<ManualDealEntryForm />);
+    fillRequiredFields();
+    expandDetails();
+    fireEvent.change(screen.getByLabelText("Purchase price"), { target: { value: "150000" } });
+    fireEvent.click(screen.getByRole("radio", { name: "Percent (%)" }));
+    fireEvent.change(screen.getByLabelText("Down payment percentage"), { target: { value: "20" } });
+
+    fireEvent.click(screen.getByRole("radio", { name: "Amount ($)" }));
+
+    const yourEntries = screen.getByRole("region", { name: "Your entries" });
+    const downPaymentRow = within(yourEntries).getByText("Down payment").closest("div") as HTMLElement;
+    expect(within(downPaymentRow).getByText("$30,000.00")).toBeInTheDocument();
+    expect(within(downPaymentRow).getByText("Calculated from user input")).toBeInTheDocument();
+  });
+
+  it("preserves provenance across repeated toggling with no further edits", () => {
+    render(<ManualDealEntryForm />);
+    fillRequiredFields();
+    expandDetails();
+    fireEvent.change(screen.getByLabelText("Purchase price"), { target: { value: "150000" } });
+    fireEvent.change(screen.getByLabelText("Down payment"), { target: { value: "30000" } });
+
+    fireEvent.click(screen.getByRole("radio", { name: "Percent (%)" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Amount ($)" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Percent (%)" }));
+
+    const yourEntries = screen.getByRole("region", { name: "Your entries" });
+    const calculatedRow = within(yourEntries).getByText("Down payment (calculated)").closest("div") as HTMLElement;
+    expect(within(calculatedRow).getByText("User input")).toBeInTheDocument();
+  });
+});
+
+describe("ManualDealEntryForm — hides stale calculated down payment while percentage is invalid", () => {
+  it("hides the previously calculated amount once the percentage becomes invalid, then shows the new correct amount once corrected", () => {
+    render(<ManualDealEntryForm />);
+    fillRequiredFields();
+    expandDetails();
+    fireEvent.change(screen.getByLabelText("Purchase price"), { target: { value: "150000" } });
+    fireEvent.click(screen.getByRole("radio", { name: "Percent (%)" }));
+
+    const percent = screen.getByLabelText("Down payment percentage");
+    const yourEntries = screen.getByRole("region", { name: "Your entries" });
+
+    // 1. Enter a valid percentage.
+    fireEvent.change(percent, { target: { value: "20" } });
+    // 2. Confirm the calculated amount.
+    let calculatedRow = within(yourEntries).getByText("Down payment (calculated)").closest("div") as HTMLElement;
+    expect(within(calculatedRow).getByText("$30,000.00")).toBeInTheDocument();
+
+    // 3. Change to an invalid percentage.
+    fireEvent.change(percent, { target: { value: "150" } });
+    // 4. Confirm the old calculated amount is hidden.
+    calculatedRow = within(yourEntries).getByText("Down payment (calculated)").closest("div") as HTMLElement;
+    expect(within(calculatedRow).queryByText("$30,000.00")).not.toBeInTheDocument();
+    expect(within(calculatedRow).getByText("Not provided")).toBeInTheDocument();
+    expect(within(calculatedRow).queryByText("Calculated from user input")).not.toBeInTheDocument();
+
+    const loanAmountRow = screen.getByText("Loan amount").closest("div") as HTMLElement;
+    expect(within(loanAmountRow).getByText(/not calculated/i)).toBeInTheDocument();
+    expect(within(loanAmountRow).getByText(/down payment percentage/i)).toBeInTheDocument();
+
+    // 5. Correct the percentage.
+    fireEvent.change(percent, { target: { value: "25" } });
+    // 6. Confirm the correct new amount returns.
+    calculatedRow = within(yourEntries).getByText("Down payment (calculated)").closest("div") as HTMLElement;
+    expect(within(calculatedRow).getByText("$37,500.00")).toBeInTheDocument();
+    expect(within(calculatedRow).getByText("Calculated from user input")).toBeInTheDocument();
+    expect(within(loanAmountRow).queryByText(/not calculated/i)).not.toBeInTheDocument();
   });
 });

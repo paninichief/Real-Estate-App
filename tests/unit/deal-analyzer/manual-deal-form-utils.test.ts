@@ -134,6 +134,26 @@ describe("validateManualDealRawValues — required fields", () => {
     expect(errors.bathrooms).toBeTruthy();
   });
 
+  it("accepts 0 bedrooms", () => {
+    const errors = validateManualDealRawValues(raw({ ...VALID_RAW, bedrooms: "0" }));
+    expect(errors.bedrooms).toBeUndefined();
+  });
+
+  it("accepts 1 bedroom", () => {
+    const errors = validateManualDealRawValues(raw({ ...VALID_RAW, bedrooms: "1" }));
+    expect(errors.bedrooms).toBeUndefined();
+  });
+
+  it("rejects a fractional bedroom count", () => {
+    const errors = validateManualDealRawValues(raw({ ...VALID_RAW, bedrooms: "1.5" }));
+    expect(errors.bedrooms).toMatch(/whole number/i);
+  });
+
+  it("does not require bathrooms to be a whole number (half-baths are valid)", () => {
+    const errors = validateManualDealRawValues(raw({ ...VALID_RAW, bathrooms: "1.5" }));
+    expect(errors.bathrooms).toBeUndefined();
+  });
+
   it("rejects a down payment that exceeds the purchase price", () => {
     const errors = validateManualDealRawValues(
       raw({ ...VALID_RAW, purchasePrice: "100000", downPayment: "150000" }),

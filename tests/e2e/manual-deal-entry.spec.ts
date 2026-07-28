@@ -254,4 +254,83 @@ test.describe("Manual Deal Entry", () => {
     await expect(page.getByText("Calculated down payment: $50,000.00")).toBeVisible();
     await expect(loanAmountRow.getByText(/not calculated/i)).toHaveCount(0);
   });
+
+  test("keeps the dollar amount labeled User input after switching to view Percent mode, since the user typed the dollar amount", async ({
+    page,
+  }) => {
+    await page.goto("/deal-analyzer/manual");
+    await fillRequiredFields(page);
+    await page.getByRole("button", { name: /add more details/i }).click();
+    await page.getByLabel("Purchase price").fill("150000");
+    await page.getByLabel("Down payment").fill("30000");
+
+    await page.getByRole("radio", { name: "Percent (%)" }).check();
+
+    const calculatedRow = page.locator("dt", { hasText: "Down payment (calculated)" }).locator("xpath=..");
+    await expect(calculatedRow.getByText("$30,000.00")).toBeVisible();
+    await expect(calculatedRow.getByText("User input")).toBeVisible();
+
+    const percentRow = page.locator("dt", { hasText: "Down payment percentage" }).locator("xpath=..");
+    await expect(percentRow.getByText("Calculated from user input")).toBeVisible();
+  });
+
+  test("keeps the percentage labeled User input after switching to view Amount mode, since the user typed the percentage", async ({
+    page,
+  }) => {
+    await page.goto("/deal-analyzer/manual");
+    await fillRequiredFields(page);
+    await page.getByRole("button", { name: /add more details/i }).click();
+    await page.getByLabel("Purchase price").fill("150000");
+    await page.getByRole("radio", { name: "Percent (%)" }).check();
+    await page.getByLabel("Down payment percentage").fill("20");
+
+    await page.getByRole("radio", { name: "Amount ($)" }).check();
+
+    const downPaymentRow = page.locator("dt", { hasText: "Down payment" }).locator("xpath=..").first();
+    await expect(downPaymentRow.getByText("$30,000.00")).toBeVisible();
+    await expect(downPaymentRow.getByText("Calculated from user input")).toBeVisible();
+  });
+
+  test("hides the previously calculated down payment amount once the percentage becomes invalid, then shows the correct new amount once corrected", async ({
+    page,
+  }) => {
+    await page.goto("/deal-analyzer/manual");
+    await fillRequiredFields(page);
+    await page.getByRole("button", { name: /add more details/i }).click();
+    await page.getByLabel("Purchase price").fill("150000");
+    await page.getByRole("radio", { name: "Percent (%)" }).check();
+
+    const percent = page.getByLabel("Down payment percentage");
+    const calculatedRow = page.locator("dt", { hasText: "Down payment (calculated)" }).locator("xpath=..");
+    const loanAmountRow = page.locator("dt", { hasText: "Loan amount" }).locator("xpath=..");
+
+    await percent.fill("20");
+    await expect(calculatedRow.getByText("$30,000.00")).toBeVisible();
+
+    await percent.fill("150");
+    await expect(calculatedRow.getByText("$30,000.00")).toHaveCount(0);
+    await expect(calculatedRow.getByText("Not provided")).toBeVisible();
+    await expect(loanAmountRow.getByText(/not calculated/i)).toBeVisible();
+    await expect(loanAmountRow.getByText(/down payment percentage/i)).toBeVisible();
+
+    await percent.fill("25");
+    await expect(calculatedRow.getByText("$37,500.00")).toBeVisible();
+    await expect(loanAmountRow.getByText(/not calculated/i)).toHaveCount(0);
+  });
+
+  test("rejects a fractional bedroom count with an accessible error, preserves the value, and clears immediately once corrected", async ({
+    page,
+  }) => {
+    await page.goto("/deal-analyzer/manual");
+    const bedrooms = page.getByLabel("Bedrooms");
+
+    await bedrooms.fill("1.5");
+    await bedrooms.blur();
+    await expect(page.getByText(/whole number/i)).toBeVisible();
+    await expect(bedrooms).toHaveAttribute("aria-invalid", "true");
+    await expect(bedrooms).toHaveValue("1.5");
+
+    await bedrooms.fill("2");
+    await expect(page.getByText(/whole number/i)).toHaveCount(0);
+  });
 });

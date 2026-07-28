@@ -126,7 +126,13 @@ describe("ManualDealResults — down payment mode provenance", () => {
     const values: ManualDealFormValues = { ...FULL_VALUES, purchasePrice: 150_000, downPayment: 30_000 };
     const results = calculateManualDeal(values);
     render(
-      <ManualDealResults values={values} results={results} downPaymentMode="percent" downPaymentPercent={20} />,
+      <ManualDealResults
+        values={values}
+        results={results}
+        downPaymentMode="percent"
+        downPaymentSource="percent"
+        downPaymentPercent={20}
+      />,
     );
 
     const percentRow = screen.getByText("Down payment percentage").closest("div") as HTMLElement;
@@ -142,7 +148,13 @@ describe("ManualDealResults — down payment mode provenance", () => {
     const values: ManualDealFormValues = { ...REQUIRED_ONLY, purchasePrice: 150_000 };
     const results = calculateManualDeal(values);
     render(
-      <ManualDealResults values={values} results={results} downPaymentMode="percent" downPaymentPercent={null} />,
+      <ManualDealResults
+        values={values}
+        results={results}
+        downPaymentMode="percent"
+        downPaymentSource="percent"
+        downPaymentPercent={null}
+      />,
     );
 
     const percentRow = screen.getByText("Down payment percentage").closest("div") as HTMLElement;
@@ -150,6 +162,67 @@ describe("ManualDealResults — down payment mode provenance", () => {
 
     const calculatedRow = screen.getByText("Down payment (calculated)").closest("div") as HTMLElement;
     expect(within(calculatedRow).getByText("Not provided")).toBeInTheDocument();
+  });
+
+  it("labels the dollar amount as User input (not Calculated) when viewing Percent mode but the dollar amount is the true source", () => {
+    const values: ManualDealFormValues = { ...FULL_VALUES, purchasePrice: 150_000, downPayment: 30_000 };
+    const results = calculateManualDeal(values);
+    render(
+      <ManualDealResults
+        values={values}
+        results={results}
+        downPaymentMode="percent"
+        downPaymentSource="amount"
+        downPaymentPercent={20}
+      />,
+    );
+
+    const percentRow = screen.getByText("Down payment percentage").closest("div") as HTMLElement;
+    expect(within(percentRow).getByText("Calculated from user input")).toBeInTheDocument();
+
+    const calculatedRow = screen.getByText("Down payment (calculated)").closest("div") as HTMLElement;
+    expect(within(calculatedRow).getByText("$30,000.00")).toBeInTheDocument();
+    expect(within(calculatedRow).getByText("User input")).toBeInTheDocument();
+  });
+
+  it("labels the dollar amount as Calculated from user input when viewing Amount mode but the percentage is the true source", () => {
+    const values: ManualDealFormValues = { ...FULL_VALUES, purchasePrice: 150_000, downPayment: 30_000 };
+    const results = calculateManualDeal(values);
+    render(
+      <ManualDealResults values={values} results={results} downPaymentMode="amount" downPaymentSource="percent" />,
+    );
+
+    const downPaymentRow = screen.getByText("Down payment").closest("div") as HTMLElement;
+    expect(within(downPaymentRow).getByText("$30,000.00")).toBeInTheDocument();
+    expect(within(downPaymentRow).getByText("Calculated from user input")).toBeInTheDocument();
+  });
+
+  it("hides a stale calculated dollar amount, without a Calculated from user input tag, while the active percentage is invalid", () => {
+    const values: ManualDealFormValues = { ...FULL_VALUES, purchasePrice: 150_000, downPayment: 30_000 };
+    const results = calculateManualDeal(values, new Set(["downPaymentPercent"]));
+    render(
+      <ManualDealResults
+        values={values}
+        results={results}
+        downPaymentMode="percent"
+        downPaymentSource="percent"
+        downPaymentPercent={150}
+        downPaymentPercentInvalid
+      />,
+    );
+
+    const calculatedRow = screen.getByText("Down payment (calculated)").closest("div") as HTMLElement;
+    expect(within(calculatedRow).getByText("Not provided")).toBeInTheDocument();
+    expect(within(calculatedRow).queryByText("$30,000.00")).not.toBeInTheDocument();
+    expect(within(calculatedRow).queryByText("Calculated from user input")).not.toBeInTheDocument();
+
+    // The invalid percentage itself is still preserved and shown as entered.
+    const percentRow = screen.getByText("Down payment percentage").closest("div") as HTMLElement;
+    expect(within(percentRow).getByText("150%")).toBeInTheDocument();
+
+    const loanAmountRow = screen.getByText("Loan amount").closest("div") as HTMLElement;
+    expect(within(loanAmountRow).getByText(/not calculated/i)).toBeInTheDocument();
+    expect(within(loanAmountRow).getByText(/down payment percentage/i)).toBeInTheDocument();
   });
 });
 

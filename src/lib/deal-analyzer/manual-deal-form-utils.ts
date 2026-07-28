@@ -112,6 +112,8 @@ export function validateManualDealRawValues(raw: ManualDealRawValues): ManualDea
     errors.bedrooms = "Enter the number of bedrooms.";
   } else if (values.bedrooms < 0) {
     errors.bedrooms = "Bedrooms must be zero or a positive number.";
+  } else if (!Number.isInteger(values.bedrooms)) {
+    errors.bedrooms = "Bedrooms must be a whole number.";
   }
 
   if (values.bathrooms === null) {

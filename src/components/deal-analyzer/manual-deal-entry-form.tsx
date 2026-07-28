@@ -507,7 +507,9 @@ export function ManualDealEntryForm() {
         values={values}
         results={results}
         downPaymentMode={downPaymentMode}
+        downPaymentSource={downPaymentSource}
         downPaymentPercent={downPaymentPercentValue}
+        downPaymentPercentInvalid={Boolean(downPaymentPercentError)}
       />
     </div>
   );

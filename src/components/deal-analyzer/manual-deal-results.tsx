@@ -118,13 +118,35 @@ export function ManualDealResults({
   values,
   results,
   downPaymentMode = "amount",
+  downPaymentSource = "amount",
   downPaymentPercent = null,
+  downPaymentPercentInvalid = false,
 }: {
   values: ManualDealFormValues;
   results: ManualDealCalculationResults;
+  /** Which input is currently displayed — controls whether one or two rows render. */
   downPaymentMode?: DownPaymentMode;
+  /**
+   * Which input the user actually typed into — controls provenance tags
+   * ("User input" vs "Calculated from user input"), independent of which
+   * mode is merely being *viewed*. Switching `downPaymentMode` alone must
+   * never change these tags.
+   */
+  downPaymentSource?: DownPaymentMode;
   downPaymentPercent?: number | null;
+  /**
+   * True while the active percentage fails validation. While true, the
+   * calculated dollar amount is hidden (shown as "Not provided") rather
+   * than displaying a stale, no-longer-current figure as if it were a
+   * fresh calculated result.
+   */
+  downPaymentPercentInvalid?: boolean;
 }) {
+  const dollarAmountForDisplay =
+    downPaymentSource === "percent" && downPaymentPercentInvalid ? null : values.downPayment;
+  const downPaymentTag = downPaymentSource === "amount" ? "User input" : "Calculated from user input";
+  const downPaymentPercentTag = downPaymentSource === "percent" ? "User input" : "Calculated from user input";
+
   function renderEntryRow(row: EntryRow) {
     const value = values[row.key];
     return (
@@ -157,7 +179,7 @@ export function ManualDealResults({
                 <dd className="mt-1 flex items-center gap-2 text-sm text-navy-900 dark:text-white">
                   <EntryValue
                     value={downPaymentPercent !== null ? `${formatPercentInput(downPaymentPercent)}%` : null}
-                    tag="User input"
+                    tag={downPaymentPercentTag}
                   />
                 </dd>
               </div>
@@ -167,8 +189,8 @@ export function ManualDealResults({
                 </dt>
                 <dd className="mt-1 flex items-center gap-2 text-sm text-navy-900 dark:text-white">
                   <EntryValue
-                    value={values.downPayment !== null ? formatCurrency(values.downPayment) : null}
-                    tag="Calculated from user input"
+                    value={dollarAmountForDisplay !== null ? formatCurrency(dollarAmountForDisplay) : null}
+                    tag={downPaymentTag}
                   />
                 </dd>
               </div>
@@ -178,8 +200,8 @@ export function ManualDealResults({
               <dt className="text-xs font-medium uppercase tracking-wide text-ink-400">Down payment</dt>
               <dd className="mt-1 flex items-center gap-2 text-sm text-navy-900 dark:text-white">
                 <EntryValue
-                  value={values.downPayment !== null ? formatCurrency(values.downPayment) : null}
-                  tag="User input"
+                  value={dollarAmountForDisplay !== null ? formatCurrency(dollarAmountForDisplay) : null}
+                  tag={downPaymentTag}
                 />
               </dd>
             </div>
