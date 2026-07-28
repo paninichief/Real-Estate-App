@@ -146,6 +146,12 @@ export function ManualDealResults({
     downPaymentSource === "percent" && downPaymentPercentInvalid ? null : values.downPayment;
   const downPaymentTag = downPaymentSource === "amount" ? "User input" : "Calculated from user input";
   const downPaymentPercentTag = downPaymentSource === "percent" ? "User input" : "Calculated from user input";
+  // The heading must never contradict the tag: whichever field is the true
+  // source gets the plain heading; the derived one is explicitly marked
+  // "(calculated)" in its own heading, not just its tag.
+  const downPaymentHeading = downPaymentSource === "amount" ? "Down payment" : "Down payment (calculated)";
+  const downPaymentPercentHeading =
+    downPaymentSource === "percent" ? "Down payment percentage" : "Down payment percentage (calculated)";
 
   function renderEntryRow(row: EntryRow) {
     const value = values[row.key];
@@ -174,7 +180,7 @@ export function ManualDealResults({
             <>
               <div>
                 <dt className="text-xs font-medium uppercase tracking-wide text-ink-400">
-                  Down payment percentage
+                  {downPaymentPercentHeading}
                 </dt>
                 <dd className="mt-1 flex items-center gap-2 text-sm text-navy-900 dark:text-white">
                   <EntryValue
@@ -184,9 +190,7 @@ export function ManualDealResults({
                 </dd>
               </div>
               <div>
-                <dt className="text-xs font-medium uppercase tracking-wide text-ink-400">
-                  Down payment (calculated)
-                </dt>
+                <dt className="text-xs font-medium uppercase tracking-wide text-ink-400">{downPaymentHeading}</dt>
                 <dd className="mt-1 flex items-center gap-2 text-sm text-navy-900 dark:text-white">
                   <EntryValue
                     value={dollarAmountForDisplay !== null ? formatCurrency(dollarAmountForDisplay) : null}
@@ -197,7 +201,7 @@ export function ManualDealResults({
             </>
           ) : (
             <div>
-              <dt className="text-xs font-medium uppercase tracking-wide text-ink-400">Down payment</dt>
+              <dt className="text-xs font-medium uppercase tracking-wide text-ink-400">{downPaymentHeading}</dt>
               <dd className="mt-1 flex items-center gap-2 text-sm text-navy-900 dark:text-white">
                 <EntryValue
                   value={dollarAmountForDisplay !== null ? formatCurrency(dollarAmountForDisplay) : null}

@@ -164,7 +164,7 @@ describe("ManualDealResults — down payment mode provenance", () => {
     expect(within(calculatedRow).getByText("Not provided")).toBeInTheDocument();
   });
 
-  it("labels the dollar amount as User input (not Calculated) when viewing Percent mode but the dollar amount is the true source", () => {
+  it("uses a plain 'Down payment' heading and User input tag for the dollar amount, and a '(calculated)' percentage heading, when the dollar amount is the true source (viewing Percent mode)", () => {
     const values: ManualDealFormValues = { ...FULL_VALUES, purchasePrice: 150_000, downPayment: 30_000 };
     const results = calculateManualDeal(values);
     render(
@@ -177,24 +177,54 @@ describe("ManualDealResults — down payment mode provenance", () => {
       />,
     );
 
-    const percentRow = screen.getByText("Down payment percentage").closest("div") as HTMLElement;
+    expect(screen.queryByText("Down payment percentage")).not.toBeInTheDocument();
+    const percentRow = screen.getByText("Down payment percentage (calculated)").closest("div") as HTMLElement;
     expect(within(percentRow).getByText("Calculated from user input")).toBeInTheDocument();
 
-    const calculatedRow = screen.getByText("Down payment (calculated)").closest("div") as HTMLElement;
-    expect(within(calculatedRow).getByText("$30,000.00")).toBeInTheDocument();
-    expect(within(calculatedRow).getByText("User input")).toBeInTheDocument();
+    expect(screen.queryByText("Down payment (calculated)")).not.toBeInTheDocument();
+    const dollarRow = screen.getByText("Down payment").closest("div") as HTMLElement;
+    expect(within(dollarRow).getByText("$30,000.00")).toBeInTheDocument();
+    expect(within(dollarRow).getByText("User input")).toBeInTheDocument();
   });
 
-  it("labels the dollar amount as Calculated from user input when viewing Amount mode but the percentage is the true source", () => {
+  it("uses a '(calculated)' heading and Calculated from user input tag for the single dollar row when viewing Amount mode but the percentage is the true source", () => {
     const values: ManualDealFormValues = { ...FULL_VALUES, purchasePrice: 150_000, downPayment: 30_000 };
     const results = calculateManualDeal(values);
     render(
       <ManualDealResults values={values} results={results} downPaymentMode="amount" downPaymentSource="percent" />,
     );
 
-    const downPaymentRow = screen.getByText("Down payment").closest("div") as HTMLElement;
-    expect(within(downPaymentRow).getByText("$30,000.00")).toBeInTheDocument();
-    expect(within(downPaymentRow).getByText("Calculated from user input")).toBeInTheDocument();
+    expect(screen.queryByText("Down payment")).not.toBeInTheDocument();
+    const dollarRow = screen.getByText("Down payment (calculated)").closest("div") as HTMLElement;
+    expect(within(dollarRow).getByText("$30,000.00")).toBeInTheDocument();
+    expect(within(dollarRow).getByText("Calculated from user input")).toBeInTheDocument();
+  });
+
+  it("never lets the heading and the tag contradict each other, for either source, in either mode", () => {
+    const values: ManualDealFormValues = { ...FULL_VALUES, purchasePrice: 150_000, downPayment: 30_000 };
+    const results = calculateManualDeal(values);
+
+    // source=amount, mode=amount: plain heading, User input.
+    const { unmount: unmount1 } = render(
+      <ManualDealResults values={values} results={results} downPaymentMode="amount" downPaymentSource="amount" />,
+    );
+    let row = screen.getByText("Down payment").closest("div") as HTMLElement;
+    expect(within(row).getByText("User input")).toBeInTheDocument();
+    unmount1();
+
+    // source=percent, mode=percent: plain percentage heading, User input.
+    const { unmount: unmount2 } = render(
+      <ManualDealResults
+        values={values}
+        results={results}
+        downPaymentMode="percent"
+        downPaymentSource="percent"
+        downPaymentPercent={20}
+      />,
+    );
+    row = screen.getByText("Down payment percentage").closest("div") as HTMLElement;
+    expect(within(row).getByText("User input")).toBeInTheDocument();
+    unmount2();
   });
 
   it("hides a stale calculated dollar amount, without a Calculated from user input tag, while the active percentage is invalid", () => {

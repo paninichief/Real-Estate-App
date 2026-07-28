@@ -368,6 +368,15 @@ export function ManualDealEntryForm() {
     if (key === "purchasePrice") {
       const purchasePrice = parseOptionalNumber(value);
       if (downPaymentSource === "percent") {
+        // An out-of-range percentage is never converted into a dollar
+        // amount, regardless of what triggers the conversion attempt —
+        // matching handleDownPaymentPercentChange below. Only update
+        // purchase price; leave the down-payment shadow untouched rather
+        // than deriving a number from an invalid percentage.
+        if (validateDownPaymentPercent(downPaymentPercentValue)) {
+          setRawValues((prev) => ({ ...prev, purchasePrice: value }));
+          return;
+        }
         const amount = percentToAmount(purchasePrice, downPaymentPercentValue);
         setRawValues((prev) => ({
           ...prev,

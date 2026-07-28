@@ -700,7 +700,7 @@ describe("ManualDealEntryForm — down payment percentage is validated independe
 });
 
 describe("ManualDealEntryForm — down payment provenance survives mode toggling", () => {
-  it("keeps the dollar amount labeled User input after switching to view Percent mode, since the user typed the dollar amount", () => {
+  it("keeps a plain 'Down payment' heading and User input tag after switching to view Percent mode, since the user typed the dollar amount", () => {
     render(<ManualDealEntryForm />);
     fillRequiredFields();
     expandDetails();
@@ -710,15 +710,19 @@ describe("ManualDealEntryForm — down payment provenance survives mode toggling
     fireEvent.click(screen.getByRole("radio", { name: "Percent (%)" }));
 
     const yourEntries = screen.getByRole("region", { name: "Your entries" });
-    const calculatedRow = within(yourEntries).getByText("Down payment (calculated)").closest("div") as HTMLElement;
-    expect(within(calculatedRow).getByText("$30,000.00")).toBeInTheDocument();
-    expect(within(calculatedRow).getByText("User input")).toBeInTheDocument();
+    expect(within(yourEntries).queryByText("Down payment (calculated)")).not.toBeInTheDocument();
+    const dollarRow = within(yourEntries).getByText("Down payment").closest("div") as HTMLElement;
+    expect(within(dollarRow).getByText("$30,000.00")).toBeInTheDocument();
+    expect(within(dollarRow).getByText("User input")).toBeInTheDocument();
 
-    const percentRow = within(yourEntries).getByText("Down payment percentage").closest("div") as HTMLElement;
+    expect(within(yourEntries).queryByText("Down payment percentage")).not.toBeInTheDocument();
+    const percentRow = within(yourEntries)
+      .getByText("Down payment percentage (calculated)")
+      .closest("div") as HTMLElement;
     expect(within(percentRow).getByText("Calculated from user input")).toBeInTheDocument();
   });
 
-  it("keeps the percentage labeled User input after switching to view Amount mode, since the user typed the percentage", () => {
+  it("keeps a plain 'Down payment percentage' heading and User input tag after switching to view Amount mode, since the user typed the percentage", () => {
     render(<ManualDealEntryForm />);
     fillRequiredFields();
     expandDetails();
@@ -729,12 +733,13 @@ describe("ManualDealEntryForm — down payment provenance survives mode toggling
     fireEvent.click(screen.getByRole("radio", { name: "Amount ($)" }));
 
     const yourEntries = screen.getByRole("region", { name: "Your entries" });
-    const downPaymentRow = within(yourEntries).getByText("Down payment").closest("div") as HTMLElement;
-    expect(within(downPaymentRow).getByText("$30,000.00")).toBeInTheDocument();
-    expect(within(downPaymentRow).getByText("Calculated from user input")).toBeInTheDocument();
+    expect(within(yourEntries).queryByText("Down payment")).not.toBeInTheDocument();
+    const dollarRow = within(yourEntries).getByText("Down payment (calculated)").closest("div") as HTMLElement;
+    expect(within(dollarRow).getByText("$30,000.00")).toBeInTheDocument();
+    expect(within(dollarRow).getByText("Calculated from user input")).toBeInTheDocument();
   });
 
-  it("preserves provenance across repeated toggling with no further edits", () => {
+  it("preserves headings and provenance across repeated toggling with no further edits (dollar amount is the source)", () => {
     render(<ManualDealEntryForm />);
     fillRequiredFields();
     expandDetails();
@@ -746,8 +751,28 @@ describe("ManualDealEntryForm — down payment provenance survives mode toggling
     fireEvent.click(screen.getByRole("radio", { name: "Percent (%)" }));
 
     const yourEntries = screen.getByRole("region", { name: "Your entries" });
-    const calculatedRow = within(yourEntries).getByText("Down payment (calculated)").closest("div") as HTMLElement;
-    expect(within(calculatedRow).getByText("User input")).toBeInTheDocument();
+    const dollarRow = within(yourEntries).getByText("Down payment").closest("div") as HTMLElement;
+    expect(within(dollarRow).getByText("User input")).toBeInTheDocument();
+    expect(
+      within(yourEntries).getByText("Down payment percentage (calculated)"),
+    ).toBeInTheDocument();
+  });
+
+  it("preserves headings and provenance across repeated toggling with no further edits (percentage is the source)", () => {
+    render(<ManualDealEntryForm />);
+    fillRequiredFields();
+    expandDetails();
+    fireEvent.change(screen.getByLabelText("Purchase price"), { target: { value: "150000" } });
+    fireEvent.click(screen.getByRole("radio", { name: "Percent (%)" }));
+    fireEvent.change(screen.getByLabelText("Down payment percentage"), { target: { value: "20" } });
+
+    fireEvent.click(screen.getByRole("radio", { name: "Amount ($)" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Percent (%)" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Amount ($)" }));
+
+    const yourEntries = screen.getByRole("region", { name: "Your entries" });
+    const dollarRow = within(yourEntries).getByText("Down payment (calculated)").closest("div") as HTMLElement;
+    expect(within(dollarRow).getByText("Calculated from user input")).toBeInTheDocument();
   });
 });
 
@@ -787,5 +812,62 @@ describe("ManualDealEntryForm — hides stale calculated down payment while perc
     expect(within(calculatedRow).getByText("$37,500.00")).toBeInTheDocument();
     expect(within(calculatedRow).getByText("Calculated from user input")).toBeInTheDocument();
     expect(within(loanAmountRow).queryByText(/not calculated/i)).not.toBeInTheDocument();
+  });
+});
+
+describe("ManualDealEntryForm — does not convert an invalid percentage after a purchase-price edit", () => {
+  it("generates no dollar amount when purchase price changes while the percentage is out of range (150%), and resumes correctly once corrected", () => {
+    render(<ManualDealEntryForm />);
+    fillRequiredFields(); // purchasePrice = 250000
+    expandDetails();
+    fireEvent.click(screen.getByRole("radio", { name: "Percent (%)" }));
+
+    // 1. Enter 150%.
+    fireEvent.change(screen.getByLabelText("Down payment percentage"), { target: { value: "150" } });
+
+    // 2. Change purchase price.
+    fireEvent.change(screen.getByLabelText("Purchase price"), { target: { value: "300000" } });
+
+    // 3. Confirm no dollar amount is generated.
+    const yourEntries = screen.getByRole("region", { name: "Your entries" });
+    const calculatedRow = within(yourEntries).getByText("Down payment (calculated)").closest("div") as HTMLElement;
+    expect(within(calculatedRow).getByText("Not provided")).toBeInTheDocument();
+    expect(within(calculatedRow).queryByText(/^\$/)).not.toBeInTheDocument();
+
+    const loanAmountRow = screen.getByText("Loan amount").closest("div") as HTMLElement;
+    expect(within(loanAmountRow).getByText(/down payment percentage/i)).toBeInTheDocument();
+
+    // 4. Switch to Amount mode.
+    fireEvent.click(screen.getByRole("radio", { name: "Amount ($)" }));
+
+    // 5. Confirm no invalid derived amount appears.
+    expect(screen.getByLabelText("Down payment")).toHaveValue(null);
+
+    // 6. Correct percentage to a valid value.
+    fireEvent.click(screen.getByRole("radio", { name: "Percent (%)" }));
+    fireEvent.change(screen.getByLabelText("Down payment percentage"), { target: { value: "20" } });
+
+    // 7. Confirm conversion resumes correctly (20% of 300000 = 60000).
+    expect(screen.getByText("Calculated down payment: $60,000.00")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: "Amount ($)" }));
+    expect(screen.getByLabelText("Down payment")).toHaveValue(60000);
+  });
+
+  it("never overwrites a previously valid dollar amount when purchase price changes while the percentage is invalid", () => {
+    render(<ManualDealEntryForm />);
+    fillRequiredFields();
+    expandDetails();
+    fireEvent.change(screen.getByLabelText("Purchase price"), { target: { value: "150000" } });
+    fireEvent.change(screen.getByLabelText("Down payment"), { target: { value: "30000" } });
+
+    fireEvent.click(screen.getByRole("radio", { name: "Percent (%)" }));
+    fireEvent.change(screen.getByLabelText("Down payment percentage"), { target: { value: "150" } });
+
+    // Changing purchase price while the percentage is invalid must not
+    // overwrite the dollar amount with a value derived from 150%.
+    fireEvent.change(screen.getByLabelText("Purchase price"), { target: { value: "300000" } });
+
+    fireEvent.click(screen.getByRole("radio", { name: "Amount ($)" }));
+    expect(screen.getByLabelText("Down payment")).toHaveValue(30000);
   });
 });

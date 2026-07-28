@@ -266,12 +266,24 @@ test.describe("Manual Deal Entry", () => {
 
     await page.getByRole("radio", { name: "Percent (%)" }).check();
 
-    const calculatedRow = page.locator("dt", { hasText: "Down payment (calculated)" }).locator("xpath=..");
-    await expect(calculatedRow.getByText("$30,000.00")).toBeVisible();
-    await expect(calculatedRow.getByText("User input")).toBeVisible();
+    // Scoped to "Your entries": the live form also has its own static
+    // "Down payment" label above the mode selector, and "hasText" does
+    // substring matching, so an unscoped/loose query would collide with it
+    // or with "Down payment percentage (calculated)".
+    const yourEntries = page.getByRole("region", { name: "Your entries" });
 
-    const percentRow = page.locator("dt", { hasText: "Down payment percentage" }).locator("xpath=..");
+    // Plain heading for the true source (the dollar amount)...
+    const dollarRow = yourEntries.locator("dt", { hasText: /^Down payment$/ }).locator("xpath=..");
+    await expect(dollarRow.getByText("$30,000.00")).toBeVisible();
+    await expect(dollarRow.getByText("User input")).toBeVisible();
+    await expect(yourEntries.getByText("Down payment (calculated)")).toHaveCount(0);
+
+    // ...and a "(calculated)" heading for the derived percentage.
+    const percentRow = yourEntries
+      .locator("dt", { hasText: /^Down payment percentage \(calculated\)$/ })
+      .locator("xpath=..");
     await expect(percentRow.getByText("Calculated from user input")).toBeVisible();
+    await expect(yourEntries.getByText("Down payment percentage", { exact: true })).toHaveCount(0);
   });
 
   test("keeps the percentage labeled User input after switching to view Amount mode, since the user typed the percentage", async ({
@@ -286,9 +298,17 @@ test.describe("Manual Deal Entry", () => {
 
     await page.getByRole("radio", { name: "Amount ($)" }).check();
 
-    const downPaymentRow = page.locator("dt", { hasText: "Down payment" }).locator("xpath=..").first();
-    await expect(downPaymentRow.getByText("$30,000.00")).toBeVisible();
-    await expect(downPaymentRow.getByText("Calculated from user input")).toBeVisible();
+    // The single visible row uses the "(calculated)" heading since the
+    // percentage, not the dollar amount, is the true source. Scoped to
+    // "Your entries" — the live form's own static "Down payment" label
+    // (above the mode selector) is unrelated and always present.
+    const yourEntries = page.getByRole("region", { name: "Your entries" });
+    await expect(yourEntries.getByText("Down payment", { exact: true })).toHaveCount(0);
+    const dollarRow = yourEntries
+      .locator("dt", { hasText: /^Down payment \(calculated\)$/ })
+      .locator("xpath=..");
+    await expect(dollarRow.getByText("$30,000.00")).toBeVisible();
+    await expect(dollarRow.getByText("Calculated from user input")).toBeVisible();
   });
 
   test("hides the previously calculated down payment amount once the percentage becomes invalid, then shows the correct new amount once corrected", async ({
@@ -332,5 +352,43 @@ test.describe("Manual Deal Entry", () => {
 
     await bedrooms.fill("2");
     await expect(page.getByText(/whole number/i)).toHaveCount(0);
+  });
+
+  test("does not convert an invalid 150% into a dollar amount after a purchase-price edit, and resumes correctly once corrected", async ({
+    page,
+  }) => {
+    await page.goto("/deal-analyzer/manual");
+    await fillRequiredFields(page); // purchase price = 250000
+    await page.getByRole("button", { name: /add more details/i }).click();
+    await page.getByRole("radio", { name: "Percent (%)" }).check();
+
+    // 1. Enter 150%.
+    await page.getByLabel("Down payment percentage").fill("150");
+
+    // 2. Change purchase price.
+    await page.getByLabel("Purchase price").fill("300000");
+
+    // 3. Confirm no dollar amount is generated.
+    const calculatedRow = page.locator("dt", { hasText: "Down payment (calculated)" }).locator("xpath=..");
+    await expect(calculatedRow.getByText("Not provided")).toBeVisible();
+    await expect(calculatedRow.getByText(/^\$/)).toHaveCount(0);
+
+    const loanAmountRow = page.locator("dt", { hasText: "Loan amount" }).locator("xpath=..");
+    await expect(loanAmountRow.getByText(/down payment percentage/i)).toBeVisible();
+
+    // 4. Switch to Amount mode.
+    await page.getByRole("radio", { name: "Amount ($)" }).check();
+
+    // 5. Confirm no invalid derived amount appears.
+    await expect(page.getByLabel("Down payment")).toHaveValue("");
+
+    // 6. Correct percentage to a valid value.
+    await page.getByRole("radio", { name: "Percent (%)" }).check();
+    await page.getByLabel("Down payment percentage").fill("20");
+
+    // 7. Confirm conversion resumes correctly (20% of 300000 = 60000).
+    await expect(page.getByText("Calculated down payment: $60,000.00")).toBeVisible();
+    await page.getByRole("radio", { name: "Amount ($)" }).check();
+    await expect(page.getByLabel("Down payment")).toHaveValue("60000");
   });
 });
