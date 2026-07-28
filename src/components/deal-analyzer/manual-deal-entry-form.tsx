@@ -18,6 +18,8 @@ import {
   type DownPaymentMode,
 } from "@/lib/deal-analyzer/down-payment-input";
 import { formatCurrency } from "@/lib/deal-analyzer/format";
+import type { FieldProvenance } from "@/lib/deal-analyzer/manual-deal-types";
+import type { ManualDealSeed } from "@/lib/deal-analyzer/property-to-manual-deal";
 import { ManualDealResults } from "./manual-deal-results";
 
 type FieldKey = keyof ManualDealRawValues;
@@ -300,10 +302,25 @@ function DownPaymentField({
  * server round trip, no persistence, nothing saved or submitted. Every
  * value recalculates live as the user types; there is no separate
  * "Calculate" step.
+ *
+ * An optional `seed` (from `propertyToManualDealSeed`) pre-fills the subset
+ * of fields the property-data layer can actually supply (address, purchase
+ * price, bedrooms, bathrooms, square footage) — never rent, financing, or
+ * expenses, which have no property-data source and always start blank.
+ * Seeded fields are tagged "From property data" until edited, then "From
+ * property data (edited)" — the fact that a value originally came from
+ * property data is never hidden, only appended to.
  */
-export function ManualDealEntryForm() {
-  const [rawValues, setRawValues] = useState<ManualDealRawValues>(EMPTY_MANUAL_DEAL_RAW_VALUES);
+export function ManualDealEntryForm({ seed }: { seed?: ManualDealSeed } = {}) {
+  const [rawValues, setRawValues] = useState<ManualDealRawValues>(() => ({
+    ...EMPTY_MANUAL_DEAL_RAW_VALUES,
+    ...(seed?.values ?? {}),
+  }));
   const [touched, setTouched] = useState<Partial<Record<FieldKey, boolean>>>({});
+  // Seeded fields the user has since typed into — a field only ever enters
+  // this set, never leaves it, so re-typing the original seeded value back
+  // still reads "(edited)" rather than silently reverting.
+  const [editedSeededFields, setEditedSeededFields] = useState<Set<string>>(new Set());
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [downPaymentMode, setDownPaymentMode] = useState<DownPaymentMode>("amount");
   const [downPaymentPercentRaw, setDownPaymentPercentRaw] = useState("");
@@ -359,12 +376,28 @@ export function ManualDealEntryForm() {
     return visible;
   }, [touched, allErrors]);
 
+  const fieldProvenance = useMemo(() => {
+    if (!seed) return undefined;
+    const map: Partial<Record<FieldKey, FieldProvenance>> = {};
+    for (const key of seed.seededFields) {
+      map[key] = editedSeededFields.has(key) ? "from_property_data_edited" : "from_property_data";
+    }
+    return map;
+  }, [seed, editedSeededFields]);
+
+  /** Marks a seeded field as edited the first time the user changes it — never unmarked afterward. */
+  function markSeededFieldEdited(key: FieldKey) {
+    if (!seed || !(seed.seededFields as ReadonlySet<string>).has(key)) return;
+    setEditedSeededFields((prev) => (prev.has(key) ? prev : new Set(prev).add(key)));
+  }
+
   /**
    * Purchase price drives the down-payment shadow field, deriving from
    * whichever field is the authoritative *source* (see `downPaymentSource`
    * above) — never from whichever field is merely visible.
    */
   function handleChange(key: FieldKey, value: string) {
+    markSeededFieldEdited(key);
     if (key === "purchasePrice") {
       const purchasePrice = parseOptionalNumber(value);
       if (downPaymentSource === "percent") {
@@ -519,6 +552,8 @@ export function ManualDealEntryForm() {
         downPaymentSource={downPaymentSource}
         downPaymentPercent={downPaymentPercentValue}
         downPaymentPercentInvalid={Boolean(downPaymentPercentError)}
+        fieldProvenance={fieldProvenance}
+        fieldStatus={seed?.statuses}
       />
     </div>
   );

@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getPropertyDataProvider } from "@/lib/property-data";
 import { PropertyPhotoGallerySection } from "@/components/property/property-photo-gallery-section";
@@ -76,6 +77,13 @@ export default async function PropertyPage({
       <p className="mt-1 text-sm text-ink-600 dark:text-ink-400">
         Last updated {new Date(property.lastUpdatedAt).toLocaleString()}
       </p>
+
+      <Link
+        href={`/deal-analyzer/property/${property.id}`}
+        className="mt-4 inline-block rounded-md bg-navy-900 px-4 py-2 text-sm font-semibold text-white hover:bg-navy-800 dark:bg-gold-500 dark:text-navy-950 dark:hover:bg-gold-400"
+      >
+        Analyze this deal
+      </Link>
 
       <div className="mt-6">
         <Suspense

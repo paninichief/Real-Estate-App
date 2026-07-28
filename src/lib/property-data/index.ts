@@ -3,6 +3,7 @@ import { RentCastAdapter } from "./rentcast-adapter";
 import type { PropertyDataProvider } from "./provider";
 
 let cachedProvider: PropertyDataProvider | null = null;
+let cachedMockProvider: PropertyDataProvider | null = null;
 
 /**
  * Returns the active PropertyDataProvider. Defaults to MockFixtureAdapter
@@ -18,4 +19,18 @@ export function getPropertyDataProvider(): PropertyDataProvider {
       process.env.PROPERTY_DATA_PROVIDER === "rentcast" ? new RentCastAdapter() : new MockFixtureAdapter();
   }
   return cachedProvider;
+}
+
+/**
+ * Returns a MockFixtureAdapter unconditionally, ignoring
+ * `PROPERTY_DATA_PROVIDER` entirely. For surfaces that must stay mock-only
+ * regardless of the site's general provider selection (Milestone 3C's
+ * property-seeded Deal Analyzer route) — never live RentCast, never an API
+ * key. Cached independently of `getPropertyDataProvider`'s own instance.
+ */
+export function getMockPropertyDataProvider(): PropertyDataProvider {
+  if (!cachedMockProvider) {
+    cachedMockProvider = new MockFixtureAdapter();
+  }
+  return cachedMockProvider;
 }
